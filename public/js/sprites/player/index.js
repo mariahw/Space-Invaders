@@ -68,13 +68,13 @@ function player(name, gameobj) {
 
       case 'left':
         if( this.obj.x > (0 + game.offset + (_this.width * 0.65) ) ){
-          _this.obj.x = _this.obj.x-=5;
+          _this.obj.x = _this.obj.x-=7;
         };
         break;
 
       case 'right':
         if (_this.obj.x < (game.grid + game.offset - (_this.width * 0.65)) ){
-          _this.obj.x = _this.obj.x+=5;
+          _this.obj.x = _this.obj.x+=7;
         }
         break;
 

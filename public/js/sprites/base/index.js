@@ -10,10 +10,10 @@ function base(gameobj, level) {
   const _this = this;
   const game = gameobj;
 
-  this.textures = []
   this.level = level;
   this.obj = null;
 
+  this.texture = config.data.texture;
   this.height = config.data.height;
   this.width = config.data.width;
   this.scale = config.data.scale;
@@ -22,9 +22,9 @@ function base(gameobj, level) {
   //Create bases and assiciated assets
   this.setup = function(){
 
-    let baseRect = new PIXI.Rectangle(89, 130, _this.height, _this.width);
+    let baseRect = new PIXI.Rectangle(0, 0, _this.width, _this.height);
     let baseTexture = new PIXI.Texture(
-      PIXI.utils.TextureCache['spriteSheet'],
+      PIXI.utils.TextureCache['base'],
       baseRect
     );
 

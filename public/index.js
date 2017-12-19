@@ -1,1886 +1,4 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-(function (process){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// resolves . and .. elements in a path array with directory names there
-// must be no slashes, empty elements, or device names (c:\) in the array
-// (so also no leading and trailing slashes - it does not distinguish
-// relative and absolute paths)
-function normalizeArray(parts, allowAboveRoot) {
-  // if the path tries to go above the root, `up` ends up > 0
-  var up = 0;
-  for (var i = parts.length - 1; i >= 0; i--) {
-    var last = parts[i];
-    if (last === '.') {
-      parts.splice(i, 1);
-    } else if (last === '..') {
-      parts.splice(i, 1);
-      up++;
-    } else if (up) {
-      parts.splice(i, 1);
-      up--;
-    }
-  }
-
-  // if the path is allowed to go above the root, restore leading ..s
-  if (allowAboveRoot) {
-    for (; up--; up) {
-      parts.unshift('..');
-    }
-  }
-
-  return parts;
-}
-
-// Split a filename into [root, dir, basename, ext], unix version
-// 'root' is just a slash, or nothing.
-var splitPathRe =
-    /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
-var splitPath = function(filename) {
-  return splitPathRe.exec(filename).slice(1);
-};
-
-// path.resolve([from ...], to)
-// posix version
-exports.resolve = function() {
-  var resolvedPath = '',
-      resolvedAbsolute = false;
-
-  for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
-    var path = (i >= 0) ? arguments[i] : process.cwd();
-
-    // Skip empty and invalid entries
-    if (typeof path !== 'string') {
-      throw new TypeError('Arguments to path.resolve must be strings');
-    } else if (!path) {
-      continue;
-    }
-
-    resolvedPath = path + '/' + resolvedPath;
-    resolvedAbsolute = path.charAt(0) === '/';
-  }
-
-  // At this point the path should be resolved to a full absolute path, but
-  // handle relative paths to be safe (might happen when process.cwd() fails)
-
-  // Normalize the path
-  resolvedPath = normalizeArray(filter(resolvedPath.split('/'), function(p) {
-    return !!p;
-  }), !resolvedAbsolute).join('/');
-
-  return ((resolvedAbsolute ? '/' : '') + resolvedPath) || '.';
-};
-
-// path.normalize(path)
-// posix version
-exports.normalize = function(path) {
-  var isAbsolute = exports.isAbsolute(path),
-      trailingSlash = substr(path, -1) === '/';
-
-  // Normalize the path
-  path = normalizeArray(filter(path.split('/'), function(p) {
-    return !!p;
-  }), !isAbsolute).join('/');
-
-  if (!path && !isAbsolute) {
-    path = '.';
-  }
-  if (path && trailingSlash) {
-    path += '/';
-  }
-
-  return (isAbsolute ? '/' : '') + path;
-};
-
-// posix version
-exports.isAbsolute = function(path) {
-  return path.charAt(0) === '/';
-};
-
-// posix version
-exports.join = function() {
-  var paths = Array.prototype.slice.call(arguments, 0);
-  return exports.normalize(filter(paths, function(p, index) {
-    if (typeof p !== 'string') {
-      throw new TypeError('Arguments to path.join must be strings');
-    }
-    return p;
-  }).join('/'));
-};
-
-
-// path.relative(from, to)
-// posix version
-exports.relative = function(from, to) {
-  from = exports.resolve(from).substr(1);
-  to = exports.resolve(to).substr(1);
-
-  function trim(arr) {
-    var start = 0;
-    for (; start < arr.length; start++) {
-      if (arr[start] !== '') break;
-    }
-
-    var end = arr.length - 1;
-    for (; end >= 0; end--) {
-      if (arr[end] !== '') break;
-    }
-
-    if (start > end) return [];
-    return arr.slice(start, end - start + 1);
-  }
-
-  var fromParts = trim(from.split('/'));
-  var toParts = trim(to.split('/'));
-
-  var length = Math.min(fromParts.length, toParts.length);
-  var samePartsLength = length;
-  for (var i = 0; i < length; i++) {
-    if (fromParts[i] !== toParts[i]) {
-      samePartsLength = i;
-      break;
-    }
-  }
-
-  var outputParts = [];
-  for (var i = samePartsLength; i < fromParts.length; i++) {
-    outputParts.push('..');
-  }
-
-  outputParts = outputParts.concat(toParts.slice(samePartsLength));
-
-  return outputParts.join('/');
-};
-
-exports.sep = '/';
-exports.delimiter = ':';
-
-exports.dirname = function(path) {
-  var result = splitPath(path),
-      root = result[0],
-      dir = result[1];
-
-  if (!root && !dir) {
-    // No dirname whatsoever
-    return '.';
-  }
-
-  if (dir) {
-    // It has a dirname, strip trailing slash
-    dir = dir.substr(0, dir.length - 1);
-  }
-
-  return root + dir;
-};
-
-
-exports.basename = function(path, ext) {
-  var f = splitPath(path)[2];
-  // TODO: make this comparison case-insensitive on windows?
-  if (ext && f.substr(-1 * ext.length) === ext) {
-    f = f.substr(0, f.length - ext.length);
-  }
-  return f;
-};
-
-
-exports.extname = function(path) {
-  return splitPath(path)[3];
-};
-
-function filter (xs, f) {
-    if (xs.filter) return xs.filter(f);
-    var res = [];
-    for (var i = 0; i < xs.length; i++) {
-        if (f(xs[i], i, xs)) res.push(xs[i]);
-    }
-    return res;
-}
-
-// String.prototype.substr - negative index don't work in IE8
-var substr = 'ab'.substr(-1) === 'b'
-    ? function (str, start, len) { return str.substr(start, len) }
-    : function (str, start, len) {
-        if (start < 0) start = str.length + start;
-        return str.substr(start, len);
-    }
-;
-
-}).call(this,require('_process'))
-},{"_process":2}],2:[function(require,module,exports){
-// shim for using process in browser
-var process = module.exports = {};
-
-// cached from whatever global is present so that test runners that stub it
-// don't break things.  But we need to wrap it in a try catch in case it is
-// wrapped in strict mode code which doesn't define any globals.  It's inside a
-// function because try/catches deoptimize in certain engines.
-
-var cachedSetTimeout;
-var cachedClearTimeout;
-
-function defaultSetTimout() {
-    throw new Error('setTimeout has not been defined');
-}
-function defaultClearTimeout () {
-    throw new Error('clearTimeout has not been defined');
-}
-(function () {
-    try {
-        if (typeof setTimeout === 'function') {
-            cachedSetTimeout = setTimeout;
-        } else {
-            cachedSetTimeout = defaultSetTimout;
-        }
-    } catch (e) {
-        cachedSetTimeout = defaultSetTimout;
-    }
-    try {
-        if (typeof clearTimeout === 'function') {
-            cachedClearTimeout = clearTimeout;
-        } else {
-            cachedClearTimeout = defaultClearTimeout;
-        }
-    } catch (e) {
-        cachedClearTimeout = defaultClearTimeout;
-    }
-} ())
-function runTimeout(fun) {
-    if (cachedSetTimeout === setTimeout) {
-        //normal enviroments in sane situations
-        return setTimeout(fun, 0);
-    }
-    // if setTimeout wasn't available but was latter defined
-    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
-        cachedSetTimeout = setTimeout;
-        return setTimeout(fun, 0);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedSetTimeout(fun, 0);
-    } catch(e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
-            return cachedSetTimeout.call(null, fun, 0);
-        } catch(e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
-            return cachedSetTimeout.call(this, fun, 0);
-        }
-    }
-
-
-}
-function runClearTimeout(marker) {
-    if (cachedClearTimeout === clearTimeout) {
-        //normal enviroments in sane situations
-        return clearTimeout(marker);
-    }
-    // if clearTimeout wasn't available but was latter defined
-    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
-        cachedClearTimeout = clearTimeout;
-        return clearTimeout(marker);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedClearTimeout(marker);
-    } catch (e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
-            return cachedClearTimeout.call(null, marker);
-        } catch (e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
-            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
-            return cachedClearTimeout.call(this, marker);
-        }
-    }
-
-
-
-}
-var queue = [];
-var draining = false;
-var currentQueue;
-var queueIndex = -1;
-
-function cleanUpNextTick() {
-    if (!draining || !currentQueue) {
-        return;
-    }
-    draining = false;
-    if (currentQueue.length) {
-        queue = currentQueue.concat(queue);
-    } else {
-        queueIndex = -1;
-    }
-    if (queue.length) {
-        drainQueue();
-    }
-}
-
-function drainQueue() {
-    if (draining) {
-        return;
-    }
-    var timeout = runTimeout(cleanUpNextTick);
-    draining = true;
-
-    var len = queue.length;
-    while(len) {
-        currentQueue = queue;
-        queue = [];
-        while (++queueIndex < len) {
-            if (currentQueue) {
-                currentQueue[queueIndex].run();
-            }
-        }
-        queueIndex = -1;
-        len = queue.length;
-    }
-    currentQueue = null;
-    draining = false;
-    runClearTimeout(timeout);
-}
-
-process.nextTick = function (fun) {
-    var args = new Array(arguments.length - 1);
-    if (arguments.length > 1) {
-        for (var i = 1; i < arguments.length; i++) {
-            args[i - 1] = arguments[i];
-        }
-    }
-    queue.push(new Item(fun, args));
-    if (queue.length === 1 && !draining) {
-        runTimeout(drainQueue);
-    }
-};
-
-// v8 likes predictible objects
-function Item(fun, array) {
-    this.fun = fun;
-    this.array = array;
-}
-Item.prototype.run = function () {
-    this.fun.apply(null, this.array);
-};
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-process.version = ''; // empty string to avoid regexp issues
-process.versions = {};
-
-function noop() {}
-
-process.on = noop;
-process.addListener = noop;
-process.once = noop;
-process.off = noop;
-process.removeListener = noop;
-process.removeAllListeners = noop;
-process.emit = noop;
-process.prependListener = noop;
-process.prependOnceListener = noop;
-
-process.listeners = function (name) { return [] }
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-};
-
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-process.umask = function() { return 0; };
-
-},{}],3:[function(require,module,exports){
-(function (global){
-/*! https://mths.be/punycode v1.4.1 by @mathias */
-;(function(root) {
-
-	/** Detect free variables */
-	var freeExports = typeof exports == 'object' && exports &&
-		!exports.nodeType && exports;
-	var freeModule = typeof module == 'object' && module &&
-		!module.nodeType && module;
-	var freeGlobal = typeof global == 'object' && global;
-	if (
-		freeGlobal.global === freeGlobal ||
-		freeGlobal.window === freeGlobal ||
-		freeGlobal.self === freeGlobal
-	) {
-		root = freeGlobal;
-	}
-
-	/**
-	 * The `punycode` object.
-	 * @name punycode
-	 * @type Object
-	 */
-	var punycode,
-
-	/** Highest positive signed 32-bit float value */
-	maxInt = 2147483647, // aka. 0x7FFFFFFF or 2^31-1
-
-	/** Bootstring parameters */
-	base = 36,
-	tMin = 1,
-	tMax = 26,
-	skew = 38,
-	damp = 700,
-	initialBias = 72,
-	initialN = 128, // 0x80
-	delimiter = '-', // '\x2D'
-
-	/** Regular expressions */
-	regexPunycode = /^xn--/,
-	regexNonASCII = /[^\x20-\x7E]/, // unprintable ASCII chars + non-ASCII chars
-	regexSeparators = /[\x2E\u3002\uFF0E\uFF61]/g, // RFC 3490 separators
-
-	/** Error messages */
-	errors = {
-		'overflow': 'Overflow: input needs wider integers to process',
-		'not-basic': 'Illegal input >= 0x80 (not a basic code point)',
-		'invalid-input': 'Invalid input'
-	},
-
-	/** Convenience shortcuts */
-	baseMinusTMin = base - tMin,
-	floor = Math.floor,
-	stringFromCharCode = String.fromCharCode,
-
-	/** Temporary variable */
-	key;
-
-	/*--------------------------------------------------------------------------*/
-
-	/**
-	 * A generic error utility function.
-	 * @private
-	 * @param {String} type The error type.
-	 * @returns {Error} Throws a `RangeError` with the applicable error message.
-	 */
-	function error(type) {
-		throw new RangeError(errors[type]);
-	}
-
-	/**
-	 * A generic `Array#map` utility function.
-	 * @private
-	 * @param {Array} array The array to iterate over.
-	 * @param {Function} callback The function that gets called for every array
-	 * item.
-	 * @returns {Array} A new array of values returned by the callback function.
-	 */
-	function map(array, fn) {
-		var length = array.length;
-		var result = [];
-		while (length--) {
-			result[length] = fn(array[length]);
-		}
-		return result;
-	}
-
-	/**
-	 * A simple `Array#map`-like wrapper to work with domain name strings or email
-	 * addresses.
-	 * @private
-	 * @param {String} domain The domain name or email address.
-	 * @param {Function} callback The function that gets called for every
-	 * character.
-	 * @returns {Array} A new string of characters returned by the callback
-	 * function.
-	 */
-	function mapDomain(string, fn) {
-		var parts = string.split('@');
-		var result = '';
-		if (parts.length > 1) {
-			// In email addresses, only the domain name should be punycoded. Leave
-			// the local part (i.e. everything up to `@`) intact.
-			result = parts[0] + '@';
-			string = parts[1];
-		}
-		// Avoid `split(regex)` for IE8 compatibility. See #17.
-		string = string.replace(regexSeparators, '\x2E');
-		var labels = string.split('.');
-		var encoded = map(labels, fn).join('.');
-		return result + encoded;
-	}
-
-	/**
-	 * Creates an array containing the numeric code points of each Unicode
-	 * character in the string. While JavaScript uses UCS-2 internally,
-	 * this function will convert a pair of surrogate halves (each of which
-	 * UCS-2 exposes as separate characters) into a single code point,
-	 * matching UTF-16.
-	 * @see `punycode.ucs2.encode`
-	 * @see <https://mathiasbynens.be/notes/javascript-encoding>
-	 * @memberOf punycode.ucs2
-	 * @name decode
-	 * @param {String} string The Unicode input string (UCS-2).
-	 * @returns {Array} The new array of code points.
-	 */
-	function ucs2decode(string) {
-		var output = [],
-		    counter = 0,
-		    length = string.length,
-		    value,
-		    extra;
-		while (counter < length) {
-			value = string.charCodeAt(counter++);
-			if (value >= 0xD800 && value <= 0xDBFF && counter < length) {
-				// high surrogate, and there is a next character
-				extra = string.charCodeAt(counter++);
-				if ((extra & 0xFC00) == 0xDC00) { // low surrogate
-					output.push(((value & 0x3FF) << 10) + (extra & 0x3FF) + 0x10000);
-				} else {
-					// unmatched surrogate; only append this code unit, in case the next
-					// code unit is the high surrogate of a surrogate pair
-					output.push(value);
-					counter--;
-				}
-			} else {
-				output.push(value);
-			}
-		}
-		return output;
-	}
-
-	/**
-	 * Creates a string based on an array of numeric code points.
-	 * @see `punycode.ucs2.decode`
-	 * @memberOf punycode.ucs2
-	 * @name encode
-	 * @param {Array} codePoints The array of numeric code points.
-	 * @returns {String} The new Unicode string (UCS-2).
-	 */
-	function ucs2encode(array) {
-		return map(array, function(value) {
-			var output = '';
-			if (value > 0xFFFF) {
-				value -= 0x10000;
-				output += stringFromCharCode(value >>> 10 & 0x3FF | 0xD800);
-				value = 0xDC00 | value & 0x3FF;
-			}
-			output += stringFromCharCode(value);
-			return output;
-		}).join('');
-	}
-
-	/**
-	 * Converts a basic code point into a digit/integer.
-	 * @see `digitToBasic()`
-	 * @private
-	 * @param {Number} codePoint The basic numeric code point value.
-	 * @returns {Number} The numeric value of a basic code point (for use in
-	 * representing integers) in the range `0` to `base - 1`, or `base` if
-	 * the code point does not represent a value.
-	 */
-	function basicToDigit(codePoint) {
-		if (codePoint - 48 < 10) {
-			return codePoint - 22;
-		}
-		if (codePoint - 65 < 26) {
-			return codePoint - 65;
-		}
-		if (codePoint - 97 < 26) {
-			return codePoint - 97;
-		}
-		return base;
-	}
-
-	/**
-	 * Converts a digit/integer into a basic code point.
-	 * @see `basicToDigit()`
-	 * @private
-	 * @param {Number} digit The numeric value of a basic code point.
-	 * @returns {Number} The basic code point whose value (when used for
-	 * representing integers) is `digit`, which needs to be in the range
-	 * `0` to `base - 1`. If `flag` is non-zero, the uppercase form is
-	 * used; else, the lowercase form is used. The behavior is undefined
-	 * if `flag` is non-zero and `digit` has no uppercase form.
-	 */
-	function digitToBasic(digit, flag) {
-		//  0..25 map to ASCII a..z or A..Z
-		// 26..35 map to ASCII 0..9
-		return digit + 22 + 75 * (digit < 26) - ((flag != 0) << 5);
-	}
-
-	/**
-	 * Bias adaptation function as per section 3.4 of RFC 3492.
-	 * https://tools.ietf.org/html/rfc3492#section-3.4
-	 * @private
-	 */
-	function adapt(delta, numPoints, firstTime) {
-		var k = 0;
-		delta = firstTime ? floor(delta / damp) : delta >> 1;
-		delta += floor(delta / numPoints);
-		for (/* no initialization */; delta > baseMinusTMin * tMax >> 1; k += base) {
-			delta = floor(delta / baseMinusTMin);
-		}
-		return floor(k + (baseMinusTMin + 1) * delta / (delta + skew));
-	}
-
-	/**
-	 * Converts a Punycode string of ASCII-only symbols to a string of Unicode
-	 * symbols.
-	 * @memberOf punycode
-	 * @param {String} input The Punycode string of ASCII-only symbols.
-	 * @returns {String} The resulting string of Unicode symbols.
-	 */
-	function decode(input) {
-		// Don't use UCS-2
-		var output = [],
-		    inputLength = input.length,
-		    out,
-		    i = 0,
-		    n = initialN,
-		    bias = initialBias,
-		    basic,
-		    j,
-		    index,
-		    oldi,
-		    w,
-		    k,
-		    digit,
-		    t,
-		    /** Cached calculation results */
-		    baseMinusT;
-
-		// Handle the basic code points: let `basic` be the number of input code
-		// points before the last delimiter, or `0` if there is none, then copy
-		// the first basic code points to the output.
-
-		basic = input.lastIndexOf(delimiter);
-		if (basic < 0) {
-			basic = 0;
-		}
-
-		for (j = 0; j < basic; ++j) {
-			// if it's not a basic code point
-			if (input.charCodeAt(j) >= 0x80) {
-				error('not-basic');
-			}
-			output.push(input.charCodeAt(j));
-		}
-
-		// Main decoding loop: start just after the last delimiter if any basic code
-		// points were copied; start at the beginning otherwise.
-
-		for (index = basic > 0 ? basic + 1 : 0; index < inputLength; /* no final expression */) {
-
-			// `index` is the index of the next character to be consumed.
-			// Decode a generalized variable-length integer into `delta`,
-			// which gets added to `i`. The overflow checking is easier
-			// if we increase `i` as we go, then subtract off its starting
-			// value at the end to obtain `delta`.
-			for (oldi = i, w = 1, k = base; /* no condition */; k += base) {
-
-				if (index >= inputLength) {
-					error('invalid-input');
-				}
-
-				digit = basicToDigit(input.charCodeAt(index++));
-
-				if (digit >= base || digit > floor((maxInt - i) / w)) {
-					error('overflow');
-				}
-
-				i += digit * w;
-				t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
-
-				if (digit < t) {
-					break;
-				}
-
-				baseMinusT = base - t;
-				if (w > floor(maxInt / baseMinusT)) {
-					error('overflow');
-				}
-
-				w *= baseMinusT;
-
-			}
-
-			out = output.length + 1;
-			bias = adapt(i - oldi, out, oldi == 0);
-
-			// `i` was supposed to wrap around from `out` to `0`,
-			// incrementing `n` each time, so we'll fix that now:
-			if (floor(i / out) > maxInt - n) {
-				error('overflow');
-			}
-
-			n += floor(i / out);
-			i %= out;
-
-			// Insert `n` at position `i` of the output
-			output.splice(i++, 0, n);
-
-		}
-
-		return ucs2encode(output);
-	}
-
-	/**
-	 * Converts a string of Unicode symbols (e.g. a domain name label) to a
-	 * Punycode string of ASCII-only symbols.
-	 * @memberOf punycode
-	 * @param {String} input The string of Unicode symbols.
-	 * @returns {String} The resulting Punycode string of ASCII-only symbols.
-	 */
-	function encode(input) {
-		var n,
-		    delta,
-		    handledCPCount,
-		    basicLength,
-		    bias,
-		    j,
-		    m,
-		    q,
-		    k,
-		    t,
-		    currentValue,
-		    output = [],
-		    /** `inputLength` will hold the number of code points in `input`. */
-		    inputLength,
-		    /** Cached calculation results */
-		    handledCPCountPlusOne,
-		    baseMinusT,
-		    qMinusT;
-
-		// Convert the input in UCS-2 to Unicode
-		input = ucs2decode(input);
-
-		// Cache the length
-		inputLength = input.length;
-
-		// Initialize the state
-		n = initialN;
-		delta = 0;
-		bias = initialBias;
-
-		// Handle the basic code points
-		for (j = 0; j < inputLength; ++j) {
-			currentValue = input[j];
-			if (currentValue < 0x80) {
-				output.push(stringFromCharCode(currentValue));
-			}
-		}
-
-		handledCPCount = basicLength = output.length;
-
-		// `handledCPCount` is the number of code points that have been handled;
-		// `basicLength` is the number of basic code points.
-
-		// Finish the basic string - if it is not empty - with a delimiter
-		if (basicLength) {
-			output.push(delimiter);
-		}
-
-		// Main encoding loop:
-		while (handledCPCount < inputLength) {
-
-			// All non-basic code points < n have been handled already. Find the next
-			// larger one:
-			for (m = maxInt, j = 0; j < inputLength; ++j) {
-				currentValue = input[j];
-				if (currentValue >= n && currentValue < m) {
-					m = currentValue;
-				}
-			}
-
-			// Increase `delta` enough to advance the decoder's <n,i> state to <m,0>,
-			// but guard against overflow
-			handledCPCountPlusOne = handledCPCount + 1;
-			if (m - n > floor((maxInt - delta) / handledCPCountPlusOne)) {
-				error('overflow');
-			}
-
-			delta += (m - n) * handledCPCountPlusOne;
-			n = m;
-
-			for (j = 0; j < inputLength; ++j) {
-				currentValue = input[j];
-
-				if (currentValue < n && ++delta > maxInt) {
-					error('overflow');
-				}
-
-				if (currentValue == n) {
-					// Represent delta as a generalized variable-length integer
-					for (q = delta, k = base; /* no condition */; k += base) {
-						t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
-						if (q < t) {
-							break;
-						}
-						qMinusT = q - t;
-						baseMinusT = base - t;
-						output.push(
-							stringFromCharCode(digitToBasic(t + qMinusT % baseMinusT, 0))
-						);
-						q = floor(qMinusT / baseMinusT);
-					}
-
-					output.push(stringFromCharCode(digitToBasic(q, 0)));
-					bias = adapt(delta, handledCPCountPlusOne, handledCPCount == basicLength);
-					delta = 0;
-					++handledCPCount;
-				}
-			}
-
-			++delta;
-			++n;
-
-		}
-		return output.join('');
-	}
-
-	/**
-	 * Converts a Punycode string representing a domain name or an email address
-	 * to Unicode. Only the Punycoded parts of the input will be converted, i.e.
-	 * it doesn't matter if you call it on a string that has already been
-	 * converted to Unicode.
-	 * @memberOf punycode
-	 * @param {String} input The Punycoded domain name or email address to
-	 * convert to Unicode.
-	 * @returns {String} The Unicode representation of the given Punycode
-	 * string.
-	 */
-	function toUnicode(input) {
-		return mapDomain(input, function(string) {
-			return regexPunycode.test(string)
-				? decode(string.slice(4).toLowerCase())
-				: string;
-		});
-	}
-
-	/**
-	 * Converts a Unicode string representing a domain name or an email address to
-	 * Punycode. Only the non-ASCII parts of the domain name will be converted,
-	 * i.e. it doesn't matter if you call it with a domain that's already in
-	 * ASCII.
-	 * @memberOf punycode
-	 * @param {String} input The domain name or email address to convert, as a
-	 * Unicode string.
-	 * @returns {String} The Punycode representation of the given domain name or
-	 * email address.
-	 */
-	function toASCII(input) {
-		return mapDomain(input, function(string) {
-			return regexNonASCII.test(string)
-				? 'xn--' + encode(string)
-				: string;
-		});
-	}
-
-	/*--------------------------------------------------------------------------*/
-
-	/** Define the public API */
-	punycode = {
-		/**
-		 * A string representing the current Punycode.js version number.
-		 * @memberOf punycode
-		 * @type String
-		 */
-		'version': '1.4.1',
-		/**
-		 * An object of methods to convert from JavaScript's internal character
-		 * representation (UCS-2) to Unicode code points, and back.
-		 * @see <https://mathiasbynens.be/notes/javascript-encoding>
-		 * @memberOf punycode
-		 * @type Object
-		 */
-		'ucs2': {
-			'decode': ucs2decode,
-			'encode': ucs2encode
-		},
-		'decode': decode,
-		'encode': encode,
-		'toASCII': toASCII,
-		'toUnicode': toUnicode
-	};
-
-	/** Expose `punycode` */
-	// Some AMD build optimizers, like r.js, check for specific condition patterns
-	// like the following:
-	if (
-		typeof define == 'function' &&
-		typeof define.amd == 'object' &&
-		define.amd
-	) {
-		define('punycode', function() {
-			return punycode;
-		});
-	} else if (freeExports && freeModule) {
-		if (module.exports == freeExports) {
-			// in Node.js, io.js, or RingoJS v0.8.0+
-			freeModule.exports = punycode;
-		} else {
-			// in Narwhal or RingoJS v0.7.0-
-			for (key in punycode) {
-				punycode.hasOwnProperty(key) && (freeExports[key] = punycode[key]);
-			}
-		}
-	} else {
-		// in Rhino or a web browser
-		root.punycode = punycode;
-	}
-
-}(this));
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],4:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-'use strict';
-
-// If obj.hasOwnProperty has been overridden, then calling
-// obj.hasOwnProperty(prop) will break.
-// See: https://github.com/joyent/node/issues/1707
-function hasOwnProperty(obj, prop) {
-  return Object.prototype.hasOwnProperty.call(obj, prop);
-}
-
-module.exports = function(qs, sep, eq, options) {
-  sep = sep || '&';
-  eq = eq || '=';
-  var obj = {};
-
-  if (typeof qs !== 'string' || qs.length === 0) {
-    return obj;
-  }
-
-  var regexp = /\+/g;
-  qs = qs.split(sep);
-
-  var maxKeys = 1000;
-  if (options && typeof options.maxKeys === 'number') {
-    maxKeys = options.maxKeys;
-  }
-
-  var len = qs.length;
-  // maxKeys <= 0 means that we should not limit keys count
-  if (maxKeys > 0 && len > maxKeys) {
-    len = maxKeys;
-  }
-
-  for (var i = 0; i < len; ++i) {
-    var x = qs[i].replace(regexp, '%20'),
-        idx = x.indexOf(eq),
-        kstr, vstr, k, v;
-
-    if (idx >= 0) {
-      kstr = x.substr(0, idx);
-      vstr = x.substr(idx + 1);
-    } else {
-      kstr = x;
-      vstr = '';
-    }
-
-    k = decodeURIComponent(kstr);
-    v = decodeURIComponent(vstr);
-
-    if (!hasOwnProperty(obj, k)) {
-      obj[k] = v;
-    } else if (isArray(obj[k])) {
-      obj[k].push(v);
-    } else {
-      obj[k] = [obj[k], v];
-    }
-  }
-
-  return obj;
-};
-
-var isArray = Array.isArray || function (xs) {
-  return Object.prototype.toString.call(xs) === '[object Array]';
-};
-
-},{}],5:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-'use strict';
-
-var stringifyPrimitive = function(v) {
-  switch (typeof v) {
-    case 'string':
-      return v;
-
-    case 'boolean':
-      return v ? 'true' : 'false';
-
-    case 'number':
-      return isFinite(v) ? v : '';
-
-    default:
-      return '';
-  }
-};
-
-module.exports = function(obj, sep, eq, name) {
-  sep = sep || '&';
-  eq = eq || '=';
-  if (obj === null) {
-    obj = undefined;
-  }
-
-  if (typeof obj === 'object') {
-    return map(objectKeys(obj), function(k) {
-      var ks = encodeURIComponent(stringifyPrimitive(k)) + eq;
-      if (isArray(obj[k])) {
-        return map(obj[k], function(v) {
-          return ks + encodeURIComponent(stringifyPrimitive(v));
-        }).join(sep);
-      } else {
-        return ks + encodeURIComponent(stringifyPrimitive(obj[k]));
-      }
-    }).join(sep);
-
-  }
-
-  if (!name) return '';
-  return encodeURIComponent(stringifyPrimitive(name)) + eq +
-         encodeURIComponent(stringifyPrimitive(obj));
-};
-
-var isArray = Array.isArray || function (xs) {
-  return Object.prototype.toString.call(xs) === '[object Array]';
-};
-
-function map (xs, f) {
-  if (xs.map) return xs.map(f);
-  var res = [];
-  for (var i = 0; i < xs.length; i++) {
-    res.push(f(xs[i], i));
-  }
-  return res;
-}
-
-var objectKeys = Object.keys || function (obj) {
-  var res = [];
-  for (var key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) res.push(key);
-  }
-  return res;
-};
-
-},{}],6:[function(require,module,exports){
-'use strict';
-
-exports.decode = exports.parse = require('./decode');
-exports.encode = exports.stringify = require('./encode');
-
-},{"./decode":4,"./encode":5}],7:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-'use strict';
-
-var punycode = require('punycode');
-var util = require('./util');
-
-exports.parse = urlParse;
-exports.resolve = urlResolve;
-exports.resolveObject = urlResolveObject;
-exports.format = urlFormat;
-
-exports.Url = Url;
-
-function Url() {
-  this.protocol = null;
-  this.slashes = null;
-  this.auth = null;
-  this.host = null;
-  this.port = null;
-  this.hostname = null;
-  this.hash = null;
-  this.search = null;
-  this.query = null;
-  this.pathname = null;
-  this.path = null;
-  this.href = null;
-}
-
-// Reference: RFC 3986, RFC 1808, RFC 2396
-
-// define these here so at least they only have to be
-// compiled once on the first module load.
-var protocolPattern = /^([a-z0-9.+-]+:)/i,
-    portPattern = /:[0-9]*$/,
-
-    // Special case for a simple path URL
-    simplePathPattern = /^(\/\/?(?!\/)[^\?\s]*)(\?[^\s]*)?$/,
-
-    // RFC 2396: characters reserved for delimiting URLs.
-    // We actually just auto-escape these.
-    delims = ['<', '>', '"', '`', ' ', '\r', '\n', '\t'],
-
-    // RFC 2396: characters not allowed for various reasons.
-    unwise = ['{', '}', '|', '\\', '^', '`'].concat(delims),
-
-    // Allowed by RFCs, but cause of XSS attacks.  Always escape these.
-    autoEscape = ['\''].concat(unwise),
-    // Characters that are never ever allowed in a hostname.
-    // Note that any invalid chars are also handled, but these
-    // are the ones that are *expected* to be seen, so we fast-path
-    // them.
-    nonHostChars = ['%', '/', '?', ';', '#'].concat(autoEscape),
-    hostEndingChars = ['/', '?', '#'],
-    hostnameMaxLen = 255,
-    hostnamePartPattern = /^[+a-z0-9A-Z_-]{0,63}$/,
-    hostnamePartStart = /^([+a-z0-9A-Z_-]{0,63})(.*)$/,
-    // protocols that can allow "unsafe" and "unwise" chars.
-    unsafeProtocol = {
-      'javascript': true,
-      'javascript:': true
-    },
-    // protocols that never have a hostname.
-    hostlessProtocol = {
-      'javascript': true,
-      'javascript:': true
-    },
-    // protocols that always contain a // bit.
-    slashedProtocol = {
-      'http': true,
-      'https': true,
-      'ftp': true,
-      'gopher': true,
-      'file': true,
-      'http:': true,
-      'https:': true,
-      'ftp:': true,
-      'gopher:': true,
-      'file:': true
-    },
-    querystring = require('querystring');
-
-function urlParse(url, parseQueryString, slashesDenoteHost) {
-  if (url && util.isObject(url) && url instanceof Url) return url;
-
-  var u = new Url;
-  u.parse(url, parseQueryString, slashesDenoteHost);
-  return u;
-}
-
-Url.prototype.parse = function(url, parseQueryString, slashesDenoteHost) {
-  if (!util.isString(url)) {
-    throw new TypeError("Parameter 'url' must be a string, not " + typeof url);
-  }
-
-  // Copy chrome, IE, opera backslash-handling behavior.
-  // Back slashes before the query string get converted to forward slashes
-  // See: https://code.google.com/p/chromium/issues/detail?id=25916
-  var queryIndex = url.indexOf('?'),
-      splitter =
-          (queryIndex !== -1 && queryIndex < url.indexOf('#')) ? '?' : '#',
-      uSplit = url.split(splitter),
-      slashRegex = /\\/g;
-  uSplit[0] = uSplit[0].replace(slashRegex, '/');
-  url = uSplit.join(splitter);
-
-  var rest = url;
-
-  // trim before proceeding.
-  // This is to support parse stuff like "  http://foo.com  \n"
-  rest = rest.trim();
-
-  if (!slashesDenoteHost && url.split('#').length === 1) {
-    // Try fast path regexp
-    var simplePath = simplePathPattern.exec(rest);
-    if (simplePath) {
-      this.path = rest;
-      this.href = rest;
-      this.pathname = simplePath[1];
-      if (simplePath[2]) {
-        this.search = simplePath[2];
-        if (parseQueryString) {
-          this.query = querystring.parse(this.search.substr(1));
-        } else {
-          this.query = this.search.substr(1);
-        }
-      } else if (parseQueryString) {
-        this.search = '';
-        this.query = {};
-      }
-      return this;
-    }
-  }
-
-  var proto = protocolPattern.exec(rest);
-  if (proto) {
-    proto = proto[0];
-    var lowerProto = proto.toLowerCase();
-    this.protocol = lowerProto;
-    rest = rest.substr(proto.length);
-  }
-
-  // figure out if it's got a host
-  // user@server is *always* interpreted as a hostname, and url
-  // resolution will treat //foo/bar as host=foo,path=bar because that's
-  // how the browser resolves relative URLs.
-  if (slashesDenoteHost || proto || rest.match(/^\/\/[^@\/]+@[^@\/]+/)) {
-    var slashes = rest.substr(0, 2) === '//';
-    if (slashes && !(proto && hostlessProtocol[proto])) {
-      rest = rest.substr(2);
-      this.slashes = true;
-    }
-  }
-
-  if (!hostlessProtocol[proto] &&
-      (slashes || (proto && !slashedProtocol[proto]))) {
-
-    // there's a hostname.
-    // the first instance of /, ?, ;, or # ends the host.
-    //
-    // If there is an @ in the hostname, then non-host chars *are* allowed
-    // to the left of the last @ sign, unless some host-ending character
-    // comes *before* the @-sign.
-    // URLs are obnoxious.
-    //
-    // ex:
-    // http://a@b@c/ => user:a@b host:c
-    // http://a@b?@c => user:a host:c path:/?@c
-
-    // v0.12 TODO(isaacs): This is not quite how Chrome does things.
-    // Review our test case against browsers more comprehensively.
-
-    // find the first instance of any hostEndingChars
-    var hostEnd = -1;
-    for (var i = 0; i < hostEndingChars.length; i++) {
-      var hec = rest.indexOf(hostEndingChars[i]);
-      if (hec !== -1 && (hostEnd === -1 || hec < hostEnd))
-        hostEnd = hec;
-    }
-
-    // at this point, either we have an explicit point where the
-    // auth portion cannot go past, or the last @ char is the decider.
-    var auth, atSign;
-    if (hostEnd === -1) {
-      // atSign can be anywhere.
-      atSign = rest.lastIndexOf('@');
-    } else {
-      // atSign must be in auth portion.
-      // http://a@b/c@d => host:b auth:a path:/c@d
-      atSign = rest.lastIndexOf('@', hostEnd);
-    }
-
-    // Now we have a portion which is definitely the auth.
-    // Pull that off.
-    if (atSign !== -1) {
-      auth = rest.slice(0, atSign);
-      rest = rest.slice(atSign + 1);
-      this.auth = decodeURIComponent(auth);
-    }
-
-    // the host is the remaining to the left of the first non-host char
-    hostEnd = -1;
-    for (var i = 0; i < nonHostChars.length; i++) {
-      var hec = rest.indexOf(nonHostChars[i]);
-      if (hec !== -1 && (hostEnd === -1 || hec < hostEnd))
-        hostEnd = hec;
-    }
-    // if we still have not hit it, then the entire thing is a host.
-    if (hostEnd === -1)
-      hostEnd = rest.length;
-
-    this.host = rest.slice(0, hostEnd);
-    rest = rest.slice(hostEnd);
-
-    // pull out port.
-    this.parseHost();
-
-    // we've indicated that there is a hostname,
-    // so even if it's empty, it has to be present.
-    this.hostname = this.hostname || '';
-
-    // if hostname begins with [ and ends with ]
-    // assume that it's an IPv6 address.
-    var ipv6Hostname = this.hostname[0] === '[' &&
-        this.hostname[this.hostname.length - 1] === ']';
-
-    // validate a little.
-    if (!ipv6Hostname) {
-      var hostparts = this.hostname.split(/\./);
-      for (var i = 0, l = hostparts.length; i < l; i++) {
-        var part = hostparts[i];
-        if (!part) continue;
-        if (!part.match(hostnamePartPattern)) {
-          var newpart = '';
-          for (var j = 0, k = part.length; j < k; j++) {
-            if (part.charCodeAt(j) > 127) {
-              // we replace non-ASCII char with a temporary placeholder
-              // we need this to make sure size of hostname is not
-              // broken by replacing non-ASCII by nothing
-              newpart += 'x';
-            } else {
-              newpart += part[j];
-            }
-          }
-          // we test again with ASCII char only
-          if (!newpart.match(hostnamePartPattern)) {
-            var validParts = hostparts.slice(0, i);
-            var notHost = hostparts.slice(i + 1);
-            var bit = part.match(hostnamePartStart);
-            if (bit) {
-              validParts.push(bit[1]);
-              notHost.unshift(bit[2]);
-            }
-            if (notHost.length) {
-              rest = '/' + notHost.join('.') + rest;
-            }
-            this.hostname = validParts.join('.');
-            break;
-          }
-        }
-      }
-    }
-
-    if (this.hostname.length > hostnameMaxLen) {
-      this.hostname = '';
-    } else {
-      // hostnames are always lower case.
-      this.hostname = this.hostname.toLowerCase();
-    }
-
-    if (!ipv6Hostname) {
-      // IDNA Support: Returns a punycoded representation of "domain".
-      // It only converts parts of the domain name that
-      // have non-ASCII characters, i.e. it doesn't matter if
-      // you call it with a domain that already is ASCII-only.
-      this.hostname = punycode.toASCII(this.hostname);
-    }
-
-    var p = this.port ? ':' + this.port : '';
-    var h = this.hostname || '';
-    this.host = h + p;
-    this.href += this.host;
-
-    // strip [ and ] from the hostname
-    // the host field still retains them, though
-    if (ipv6Hostname) {
-      this.hostname = this.hostname.substr(1, this.hostname.length - 2);
-      if (rest[0] !== '/') {
-        rest = '/' + rest;
-      }
-    }
-  }
-
-  // now rest is set to the post-host stuff.
-  // chop off any delim chars.
-  if (!unsafeProtocol[lowerProto]) {
-
-    // First, make 100% sure that any "autoEscape" chars get
-    // escaped, even if encodeURIComponent doesn't think they
-    // need to be.
-    for (var i = 0, l = autoEscape.length; i < l; i++) {
-      var ae = autoEscape[i];
-      if (rest.indexOf(ae) === -1)
-        continue;
-      var esc = encodeURIComponent(ae);
-      if (esc === ae) {
-        esc = escape(ae);
-      }
-      rest = rest.split(ae).join(esc);
-    }
-  }
-
-
-  // chop off from the tail first.
-  var hash = rest.indexOf('#');
-  if (hash !== -1) {
-    // got a fragment string.
-    this.hash = rest.substr(hash);
-    rest = rest.slice(0, hash);
-  }
-  var qm = rest.indexOf('?');
-  if (qm !== -1) {
-    this.search = rest.substr(qm);
-    this.query = rest.substr(qm + 1);
-    if (parseQueryString) {
-      this.query = querystring.parse(this.query);
-    }
-    rest = rest.slice(0, qm);
-  } else if (parseQueryString) {
-    // no query string, but parseQueryString still requested
-    this.search = '';
-    this.query = {};
-  }
-  if (rest) this.pathname = rest;
-  if (slashedProtocol[lowerProto] &&
-      this.hostname && !this.pathname) {
-    this.pathname = '/';
-  }
-
-  //to support http.request
-  if (this.pathname || this.search) {
-    var p = this.pathname || '';
-    var s = this.search || '';
-    this.path = p + s;
-  }
-
-  // finally, reconstruct the href based on what has been validated.
-  this.href = this.format();
-  return this;
-};
-
-// format a parsed object into a url string
-function urlFormat(obj) {
-  // ensure it's an object, and not a string url.
-  // If it's an obj, this is a no-op.
-  // this way, you can call url_format() on strings
-  // to clean up potentially wonky urls.
-  if (util.isString(obj)) obj = urlParse(obj);
-  if (!(obj instanceof Url)) return Url.prototype.format.call(obj);
-  return obj.format();
-}
-
-Url.prototype.format = function() {
-  var auth = this.auth || '';
-  if (auth) {
-    auth = encodeURIComponent(auth);
-    auth = auth.replace(/%3A/i, ':');
-    auth += '@';
-  }
-
-  var protocol = this.protocol || '',
-      pathname = this.pathname || '',
-      hash = this.hash || '',
-      host = false,
-      query = '';
-
-  if (this.host) {
-    host = auth + this.host;
-  } else if (this.hostname) {
-    host = auth + (this.hostname.indexOf(':') === -1 ?
-        this.hostname :
-        '[' + this.hostname + ']');
-    if (this.port) {
-      host += ':' + this.port;
-    }
-  }
-
-  if (this.query &&
-      util.isObject(this.query) &&
-      Object.keys(this.query).length) {
-    query = querystring.stringify(this.query);
-  }
-
-  var search = this.search || (query && ('?' + query)) || '';
-
-  if (protocol && protocol.substr(-1) !== ':') protocol += ':';
-
-  // only the slashedProtocols get the //.  Not mailto:, xmpp:, etc.
-  // unless they had them to begin with.
-  if (this.slashes ||
-      (!protocol || slashedProtocol[protocol]) && host !== false) {
-    host = '//' + (host || '');
-    if (pathname && pathname.charAt(0) !== '/') pathname = '/' + pathname;
-  } else if (!host) {
-    host = '';
-  }
-
-  if (hash && hash.charAt(0) !== '#') hash = '#' + hash;
-  if (search && search.charAt(0) !== '?') search = '?' + search;
-
-  pathname = pathname.replace(/[?#]/g, function(match) {
-    return encodeURIComponent(match);
-  });
-  search = search.replace('#', '%23');
-
-  return protocol + host + pathname + search + hash;
-};
-
-function urlResolve(source, relative) {
-  return urlParse(source, false, true).resolve(relative);
-}
-
-Url.prototype.resolve = function(relative) {
-  return this.resolveObject(urlParse(relative, false, true)).format();
-};
-
-function urlResolveObject(source, relative) {
-  if (!source) return relative;
-  return urlParse(source, false, true).resolveObject(relative);
-}
-
-Url.prototype.resolveObject = function(relative) {
-  if (util.isString(relative)) {
-    var rel = new Url();
-    rel.parse(relative, false, true);
-    relative = rel;
-  }
-
-  var result = new Url();
-  var tkeys = Object.keys(this);
-  for (var tk = 0; tk < tkeys.length; tk++) {
-    var tkey = tkeys[tk];
-    result[tkey] = this[tkey];
-  }
-
-  // hash is always overridden, no matter what.
-  // even href="" will remove it.
-  result.hash = relative.hash;
-
-  // if the relative url is empty, then there's nothing left to do here.
-  if (relative.href === '') {
-    result.href = result.format();
-    return result;
-  }
-
-  // hrefs like //foo/bar always cut to the protocol.
-  if (relative.slashes && !relative.protocol) {
-    // take everything except the protocol from relative
-    var rkeys = Object.keys(relative);
-    for (var rk = 0; rk < rkeys.length; rk++) {
-      var rkey = rkeys[rk];
-      if (rkey !== 'protocol')
-        result[rkey] = relative[rkey];
-    }
-
-    //urlParse appends trailing / to urls like http://www.example.com
-    if (slashedProtocol[result.protocol] &&
-        result.hostname && !result.pathname) {
-      result.path = result.pathname = '/';
-    }
-
-    result.href = result.format();
-    return result;
-  }
-
-  if (relative.protocol && relative.protocol !== result.protocol) {
-    // if it's a known url protocol, then changing
-    // the protocol does weird things
-    // first, if it's not file:, then we MUST have a host,
-    // and if there was a path
-    // to begin with, then we MUST have a path.
-    // if it is file:, then the host is dropped,
-    // because that's known to be hostless.
-    // anything else is assumed to be absolute.
-    if (!slashedProtocol[relative.protocol]) {
-      var keys = Object.keys(relative);
-      for (var v = 0; v < keys.length; v++) {
-        var k = keys[v];
-        result[k] = relative[k];
-      }
-      result.href = result.format();
-      return result;
-    }
-
-    result.protocol = relative.protocol;
-    if (!relative.host && !hostlessProtocol[relative.protocol]) {
-      var relPath = (relative.pathname || '').split('/');
-      while (relPath.length && !(relative.host = relPath.shift()));
-      if (!relative.host) relative.host = '';
-      if (!relative.hostname) relative.hostname = '';
-      if (relPath[0] !== '') relPath.unshift('');
-      if (relPath.length < 2) relPath.unshift('');
-      result.pathname = relPath.join('/');
-    } else {
-      result.pathname = relative.pathname;
-    }
-    result.search = relative.search;
-    result.query = relative.query;
-    result.host = relative.host || '';
-    result.auth = relative.auth;
-    result.hostname = relative.hostname || relative.host;
-    result.port = relative.port;
-    // to support http.request
-    if (result.pathname || result.search) {
-      var p = result.pathname || '';
-      var s = result.search || '';
-      result.path = p + s;
-    }
-    result.slashes = result.slashes || relative.slashes;
-    result.href = result.format();
-    return result;
-  }
-
-  var isSourceAbs = (result.pathname && result.pathname.charAt(0) === '/'),
-      isRelAbs = (
-          relative.host ||
-          relative.pathname && relative.pathname.charAt(0) === '/'
-      ),
-      mustEndAbs = (isRelAbs || isSourceAbs ||
-                    (result.host && relative.pathname)),
-      removeAllDots = mustEndAbs,
-      srcPath = result.pathname && result.pathname.split('/') || [],
-      relPath = relative.pathname && relative.pathname.split('/') || [],
-      psychotic = result.protocol && !slashedProtocol[result.protocol];
-
-  // if the url is a non-slashed url, then relative
-  // links like ../.. should be able
-  // to crawl up to the hostname, as well.  This is strange.
-  // result.protocol has already been set by now.
-  // Later on, put the first path part into the host field.
-  if (psychotic) {
-    result.hostname = '';
-    result.port = null;
-    if (result.host) {
-      if (srcPath[0] === '') srcPath[0] = result.host;
-      else srcPath.unshift(result.host);
-    }
-    result.host = '';
-    if (relative.protocol) {
-      relative.hostname = null;
-      relative.port = null;
-      if (relative.host) {
-        if (relPath[0] === '') relPath[0] = relative.host;
-        else relPath.unshift(relative.host);
-      }
-      relative.host = null;
-    }
-    mustEndAbs = mustEndAbs && (relPath[0] === '' || srcPath[0] === '');
-  }
-
-  if (isRelAbs) {
-    // it's absolute.
-    result.host = (relative.host || relative.host === '') ?
-                  relative.host : result.host;
-    result.hostname = (relative.hostname || relative.hostname === '') ?
-                      relative.hostname : result.hostname;
-    result.search = relative.search;
-    result.query = relative.query;
-    srcPath = relPath;
-    // fall through to the dot-handling below.
-  } else if (relPath.length) {
-    // it's relative
-    // throw away the existing file, and take the new path instead.
-    if (!srcPath) srcPath = [];
-    srcPath.pop();
-    srcPath = srcPath.concat(relPath);
-    result.search = relative.search;
-    result.query = relative.query;
-  } else if (!util.isNullOrUndefined(relative.search)) {
-    // just pull out the search.
-    // like href='?foo'.
-    // Put this after the other two cases because it simplifies the booleans
-    if (psychotic) {
-      result.hostname = result.host = srcPath.shift();
-      //occationaly the auth can get stuck only in host
-      //this especially happens in cases like
-      //url.resolveObject('mailto:local1@domain1', 'local2@domain2')
-      var authInHost = result.host && result.host.indexOf('@') > 0 ?
-                       result.host.split('@') : false;
-      if (authInHost) {
-        result.auth = authInHost.shift();
-        result.host = result.hostname = authInHost.shift();
-      }
-    }
-    result.search = relative.search;
-    result.query = relative.query;
-    //to support http.request
-    if (!util.isNull(result.pathname) || !util.isNull(result.search)) {
-      result.path = (result.pathname ? result.pathname : '') +
-                    (result.search ? result.search : '');
-    }
-    result.href = result.format();
-    return result;
-  }
-
-  if (!srcPath.length) {
-    // no path at all.  easy.
-    // we've already handled the other stuff above.
-    result.pathname = null;
-    //to support http.request
-    if (result.search) {
-      result.path = '/' + result.search;
-    } else {
-      result.path = null;
-    }
-    result.href = result.format();
-    return result;
-  }
-
-  // if a url ENDs in . or .., then it must get a trailing slash.
-  // however, if it ends in anything else non-slashy,
-  // then it must NOT get a trailing slash.
-  var last = srcPath.slice(-1)[0];
-  var hasTrailingSlash = (
-      (result.host || relative.host || srcPath.length > 1) &&
-      (last === '.' || last === '..') || last === '');
-
-  // strip single dots, resolve double dots to parent dir
-  // if the path tries to go above the root, `up` ends up > 0
-  var up = 0;
-  for (var i = srcPath.length; i >= 0; i--) {
-    last = srcPath[i];
-    if (last === '.') {
-      srcPath.splice(i, 1);
-    } else if (last === '..') {
-      srcPath.splice(i, 1);
-      up++;
-    } else if (up) {
-      srcPath.splice(i, 1);
-      up--;
-    }
-  }
-
-  // if the path is allowed to go above the root, restore leading ..s
-  if (!mustEndAbs && !removeAllDots) {
-    for (; up--; up) {
-      srcPath.unshift('..');
-    }
-  }
-
-  if (mustEndAbs && srcPath[0] !== '' &&
-      (!srcPath[0] || srcPath[0].charAt(0) !== '/')) {
-    srcPath.unshift('');
-  }
-
-  if (hasTrailingSlash && (srcPath.join('/').substr(-1) !== '/')) {
-    srcPath.push('');
-  }
-
-  var isAbsolute = srcPath[0] === '' ||
-      (srcPath[0] && srcPath[0].charAt(0) === '/');
-
-  // put the host back
-  if (psychotic) {
-    result.hostname = result.host = isAbsolute ? '' :
-                                    srcPath.length ? srcPath.shift() : '';
-    //occationaly the auth can get stuck only in host
-    //this especially happens in cases like
-    //url.resolveObject('mailto:local1@domain1', 'local2@domain2')
-    var authInHost = result.host && result.host.indexOf('@') > 0 ?
-                     result.host.split('@') : false;
-    if (authInHost) {
-      result.auth = authInHost.shift();
-      result.host = result.hostname = authInHost.shift();
-    }
-  }
-
-  mustEndAbs = mustEndAbs || (result.host && srcPath.length);
-
-  if (mustEndAbs && !isAbsolute) {
-    srcPath.unshift('');
-  }
-
-  if (!srcPath.length) {
-    result.pathname = null;
-    result.path = null;
-  } else {
-    result.pathname = srcPath.join('/');
-  }
-
-  //to support request.http
-  if (!util.isNull(result.pathname) || !util.isNull(result.search)) {
-    result.path = (result.pathname ? result.pathname : '') +
-                  (result.search ? result.search : '');
-  }
-  result.auth = relative.auth || result.auth;
-  result.slashes = result.slashes || relative.slashes;
-  result.href = result.format();
-  return result;
-};
-
-Url.prototype.parseHost = function() {
-  var host = this.host;
-  var port = portPattern.exec(host);
-  if (port) {
-    port = port[0];
-    if (port !== ':') {
-      this.port = port.substr(1);
-    }
-    host = host.substr(0, host.length - port.length);
-  }
-  if (host) this.hostname = host;
-};
-
-},{"./util":8,"punycode":3,"querystring":6}],8:[function(require,module,exports){
-'use strict';
-
-module.exports = {
-  isString: function(arg) {
-    return typeof(arg) === 'string';
-  },
-  isObject: function(arg) {
-    return typeof(arg) === 'object' && arg !== null;
-  },
-  isNull: function(arg) {
-    return arg === null;
-  },
-  isNullOrUndefined: function(arg) {
-    return arg == null;
-  }
-};
-
-},{}],9:[function(require,module,exports){
 /**
  * Bit twiddling hacks for JavaScript.
  *
@@ -2086,7 +204,7 @@ exports.nextCombination = function(v) {
 }
 
 
-},{}],10:[function(require,module,exports){
+},{}],2:[function(require,module,exports){
 'use strict';
 
 module.exports = earcut;
@@ -2726,7 +844,7 @@ earcut.flatten = function (data) {
     return result;
 };
 
-},{}],11:[function(require,module,exports){
+},{}],3:[function(require,module,exports){
 'use strict';
 
 var has = Object.prototype.hasOwnProperty
@@ -3039,7 +1157,7 @@ if ('undefined' !== typeof module) {
   module.exports = EventEmitter;
 }
 
-},{}],12:[function(require,module,exports){
+},{}],4:[function(require,module,exports){
 /**
  * isMobile.js v0.4.1
  *
@@ -3178,7 +1296,7 @@ if ('undefined' !== typeof module) {
 
 })(this);
 
-},{}],13:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', {
@@ -3345,7 +1463,7 @@ MiniSignal.MiniSignalBinding = MiniSignalBinding;
 exports['default'] = MiniSignal;
 module.exports = exports['default'];
 
-},{}],14:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 /*
 object-assign
 (c) Sindre Sorhus
@@ -3437,7 +1555,7 @@ module.exports = shouldUseNative() ? Object.assign : function (target, source) {
 	return to;
 };
 
-},{}],15:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 'use strict'
 
 module.exports = function parseURI (str, opts) {
@@ -3469,7 +1587,7 @@ module.exports = function parseURI (str, opts) {
   return uri
 }
 
-},{}],16:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 var EMPTY_ARRAY_BUFFER = new ArrayBuffer(0);
 
 /**
@@ -3590,7 +1708,7 @@ Buffer.prototype.destroy = function(){
 
 module.exports = Buffer;
 
-},{}],17:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 
 var Texture = require('./GLTexture');
 
@@ -3818,7 +1936,7 @@ Framebuffer.createFloat32 = function(gl, width, height, data)
 
 module.exports = Framebuffer;
 
-},{"./GLTexture":19}],18:[function(require,module,exports){
+},{"./GLTexture":11}],10:[function(require,module,exports){
 
 var compileProgram = require('./shader/compileProgram'),
 	extractAttributes = require('./shader/extractAttributes'),
@@ -3914,7 +2032,7 @@ Shader.prototype.destroy = function()
 
 module.exports = Shader;
 
-},{"./shader/compileProgram":24,"./shader/extractAttributes":26,"./shader/extractUniforms":27,"./shader/generateUniformAccessObject":28,"./shader/setPrecision":32}],19:[function(require,module,exports){
+},{"./shader/compileProgram":16,"./shader/extractAttributes":18,"./shader/extractUniforms":19,"./shader/generateUniformAccessObject":20,"./shader/setPrecision":24}],11:[function(require,module,exports){
 
 /**
  * Helper class to create a WebGL Texture
@@ -4249,7 +2367,7 @@ Texture.fromData = function(gl, data, width, height)
 
 module.exports = Texture;
 
-},{}],20:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 
 // state object//
 var setVertexAttribArrays = require( './setVertexAttribArrays' );
@@ -4517,7 +2635,7 @@ VertexArrayObject.prototype.getSize = function()
     return attrib.buffer.data.length / (( attrib.stride/4 ) || attrib.attribute.size);
 };
 
-},{"./setVertexAttribArrays":23}],21:[function(require,module,exports){
+},{"./setVertexAttribArrays":15}],13:[function(require,module,exports){
 
 /**
  * Helper class to create a webGL Context
@@ -4545,7 +2663,7 @@ var createContext = function(canvas, options)
 
 module.exports = createContext;
 
-},{}],22:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 var gl = {
     createContext:          require('./createContext'),
     setVertexAttribArrays:  require('./setVertexAttribArrays'),
@@ -4572,7 +2690,7 @@ if (typeof window !== 'undefined')
     window.PIXI.glCore = gl;
 }
 
-},{"./GLBuffer":16,"./GLFramebuffer":17,"./GLShader":18,"./GLTexture":19,"./VertexArrayObject":20,"./createContext":21,"./setVertexAttribArrays":23,"./shader":29}],23:[function(require,module,exports){
+},{"./GLBuffer":8,"./GLFramebuffer":9,"./GLShader":10,"./GLTexture":11,"./VertexArrayObject":12,"./createContext":13,"./setVertexAttribArrays":15,"./shader":21}],15:[function(require,module,exports){
 // var GL_MAP = {};
 
 /**
@@ -4629,7 +2747,7 @@ var setVertexAttribArrays = function (gl, attribs, state)
 
 module.exports = setVertexAttribArrays;
 
-},{}],24:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 
 /**
  * @class
@@ -4711,7 +2829,7 @@ var compileShader = function (gl, type, src)
 
 module.exports = compileProgram;
 
-},{}],25:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 /**
  * @class
  * @memberof PIXI.glCore.shader
@@ -4791,7 +2909,7 @@ var booleanArray = function(size)
 
 module.exports = defaultValue;
 
-},{}],26:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 
 var mapType = require('./mapType');
 var mapSize = require('./mapSize');
@@ -4834,7 +2952,7 @@ var pointer = function(type, normalized, stride, start){
 
 module.exports = extractAttributes;
 
-},{"./mapSize":30,"./mapType":31}],27:[function(require,module,exports){
+},{"./mapSize":22,"./mapType":23}],19:[function(require,module,exports){
 var mapType = require('./mapType');
 var defaultValue = require('./defaultValue');
 
@@ -4871,7 +2989,7 @@ var extractUniforms = function(gl, program)
 
 module.exports = extractUniforms;
 
-},{"./defaultValue":25,"./mapType":31}],28:[function(require,module,exports){
+},{"./defaultValue":17,"./mapType":23}],20:[function(require,module,exports){
 /**
  * Extracts the attributes
  * @class
@@ -4994,7 +3112,7 @@ function getUniformGroup(nameTokens, uniform)
 
 module.exports = generateUniformAccessObject;
 
-},{}],29:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 module.exports = {
     compileProgram: require('./compileProgram'),
     defaultValue: require('./defaultValue'),
@@ -5005,7 +3123,7 @@ module.exports = {
     mapSize: require('./mapSize'),
     mapType: require('./mapType')
 };
-},{"./compileProgram":24,"./defaultValue":25,"./extractAttributes":26,"./extractUniforms":27,"./generateUniformAccessObject":28,"./mapSize":30,"./mapType":31,"./setPrecision":32}],30:[function(require,module,exports){
+},{"./compileProgram":16,"./defaultValue":17,"./extractAttributes":18,"./extractUniforms":19,"./generateUniformAccessObject":20,"./mapSize":22,"./mapType":23,"./setPrecision":24}],22:[function(require,module,exports){
 /**
  * @class
  * @memberof PIXI.glCore.shader
@@ -5043,7 +3161,7 @@ var GLSL_TO_SIZE = {
 
 module.exports = mapSize;
 
-},{}],31:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 
 
 var mapType = function(gl, type) 
@@ -5091,7 +3209,7 @@ var GL_TO_GLSL_TYPES = {
 
 module.exports = mapType;
 
-},{}],32:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 /**
  * Sets the float precision on the shader. If the precision is already present this function will do nothing
  * @param {string} src       the shader source
@@ -5111,7 +3229,7 @@ var setPrecision = function(src, precision)
 
 module.exports = setPrecision;
 
-},{}],33:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -5605,7 +3723,7 @@ exports.default = AccessibilityManager;
 core.WebGLRenderer.registerPlugin('accessibility', AccessibilityManager);
 core.CanvasRenderer.registerPlugin('accessibility', AccessibilityManager);
 
-},{"../core":58,"./accessibleTarget":34,"ismobilejs":12}],34:[function(require,module,exports){
+},{"../core":50,"./accessibleTarget":26,"ismobilejs":4}],26:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -5663,7 +3781,7 @@ exports.default = {
   _accessibleDiv: false
 };
 
-},{}],35:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -5688,7 +3806,7 @@ Object.defineProperty(exports, 'AccessibilityManager', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./AccessibilityManager":33,"./accessibleTarget":34}],36:[function(require,module,exports){
+},{"./AccessibilityManager":25,"./accessibleTarget":26}],28:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -5911,7 +4029,7 @@ var Application = function () {
 
 exports.default = Application;
 
-},{"./autoDetectRenderer":38,"./const":39,"./display/Container":41,"./settings":94,"./ticker":114}],37:[function(require,module,exports){
+},{"./autoDetectRenderer":30,"./const":31,"./display/Container":33,"./settings":86,"./ticker":106}],29:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -5975,7 +4093,7 @@ var Shader = function (_GLShader) {
 
 exports.default = Shader;
 
-},{"./settings":94,"pixi-gl-core":22}],38:[function(require,module,exports){
+},{"./settings":86,"pixi-gl-core":14}],30:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -6044,7 +4162,7 @@ function autoDetectRenderer(options, arg1, arg2, arg3) {
     return new _CanvasRenderer2.default(options, arg1, arg2);
 }
 
-},{"./renderers/canvas/CanvasRenderer":70,"./renderers/webgl/WebGLRenderer":77,"./utils":118}],39:[function(require,module,exports){
+},{"./renderers/canvas/CanvasRenderer":62,"./renderers/webgl/WebGLRenderer":69,"./utils":110}],31:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -6387,7 +4505,7 @@ var UPDATE_PRIORITY = exports.UPDATE_PRIORITY = {
   UTILITY: -50
 };
 
-},{}],40:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -6730,7 +4848,7 @@ var Bounds = function () {
 
 exports.default = Bounds;
 
-},{"../math":63}],41:[function(require,module,exports){
+},{"../math":55}],33:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -7348,7 +5466,7 @@ var Container = function (_DisplayObject) {
 exports.default = Container;
 Container.prototype.containerUpdateTransform = Container.prototype.updateTransform;
 
-},{"../utils":118,"./DisplayObject":42}],42:[function(require,module,exports){
+},{"../utils":110,"./DisplayObject":34}],34:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -8040,7 +6158,7 @@ var DisplayObject = function (_EventEmitter) {
 exports.default = DisplayObject;
 DisplayObject.prototype.displayObjectUpdateTransform = DisplayObject.prototype.updateTransform;
 
-},{"../const":39,"../math":63,"../settings":94,"./Bounds":40,"./Transform":43,"./TransformStatic":45,"eventemitter3":11}],43:[function(require,module,exports){
+},{"../const":31,"../math":55,"../settings":86,"./Bounds":32,"./Transform":35,"./TransformStatic":37,"eventemitter3":3}],35:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -8221,7 +6339,7 @@ var Transform = function (_TransformBase) {
 
 exports.default = Transform;
 
-},{"../math":63,"./TransformBase":44}],44:[function(require,module,exports){
+},{"../math":55,"./TransformBase":36}],36:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -8308,7 +6426,7 @@ TransformBase.prototype.updateWorldTransform = TransformBase.prototype.updateTra
 
 TransformBase.IDENTITY = new TransformBase();
 
-},{"../math":63}],45:[function(require,module,exports){
+},{"../math":55}],37:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -8518,7 +6636,7 @@ var TransformStatic = function (_TransformBase) {
 
 exports.default = TransformStatic;
 
-},{"../math":63,"./TransformBase":44}],46:[function(require,module,exports){
+},{"../math":55,"./TransformBase":36}],38:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -9690,7 +7808,7 @@ exports.default = Graphics;
 
 Graphics._SPRITE_TEXTURE = null;
 
-},{"../const":39,"../display/Bounds":40,"../display/Container":41,"../math":63,"../renderers/canvas/CanvasRenderer":70,"../sprites/Sprite":95,"../textures/RenderTexture":106,"../textures/Texture":108,"../utils":118,"./GraphicsData":47,"./utils/bezierCurveTo":49}],47:[function(require,module,exports){
+},{"../const":31,"../display/Bounds":32,"../display/Container":33,"../math":55,"../renderers/canvas/CanvasRenderer":62,"../sprites/Sprite":87,"../textures/RenderTexture":98,"../textures/Texture":100,"../utils":110,"./GraphicsData":39,"./utils/bezierCurveTo":41}],39:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -9812,7 +7930,7 @@ var GraphicsData = function () {
 
 exports.default = GraphicsData;
 
-},{}],48:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -10081,7 +8199,7 @@ exports.default = CanvasGraphicsRenderer;
 
 _CanvasRenderer2.default.registerPlugin('graphics', CanvasGraphicsRenderer);
 
-},{"../../const":39,"../../renderers/canvas/CanvasRenderer":70}],49:[function(require,module,exports){
+},{"../../const":31,"../../renderers/canvas/CanvasRenderer":62}],41:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -10131,7 +8249,7 @@ function bezierCurveTo(fromX, fromY, cpX, cpY, cpX2, cpY2, toX, toY) {
     return path;
 }
 
-},{}],50:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -10396,7 +8514,7 @@ exports.default = GraphicsRenderer;
 
 _WebGLRenderer2.default.registerPlugin('graphics', GraphicsRenderer);
 
-},{"../../const":39,"../../renderers/webgl/WebGLRenderer":77,"../../renderers/webgl/utils/ObjectRenderer":87,"../../utils":118,"./WebGLGraphicsData":51,"./shaders/PrimitiveShader":52,"./utils/buildCircle":53,"./utils/buildPoly":55,"./utils/buildRectangle":56,"./utils/buildRoundedRectangle":57}],51:[function(require,module,exports){
+},{"../../const":31,"../../renderers/webgl/WebGLRenderer":69,"../../renderers/webgl/utils/ObjectRenderer":79,"../../utils":110,"./WebGLGraphicsData":43,"./shaders/PrimitiveShader":44,"./utils/buildCircle":45,"./utils/buildPoly":47,"./utils/buildRectangle":48,"./utils/buildRoundedRectangle":49}],43:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -10539,7 +8657,7 @@ var WebGLGraphicsData = function () {
 
 exports.default = WebGLGraphicsData;
 
-},{"pixi-gl-core":22}],52:[function(require,module,exports){
+},{"pixi-gl-core":14}],44:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -10584,7 +8702,7 @@ var PrimitiveShader = function (_Shader) {
 
 exports.default = PrimitiveShader;
 
-},{"../../../Shader":37}],53:[function(require,module,exports){
+},{"../../../Shader":29}],45:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -10677,7 +8795,7 @@ function buildCircle(graphicsData, webGLData, webGLDataNativeLines) {
     }
 }
 
-},{"../../../const":39,"../../../utils":118,"./buildLine":54}],54:[function(require,module,exports){
+},{"../../../const":31,"../../../utils":110,"./buildLine":46}],46:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -10947,7 +9065,7 @@ function buildNativeLine(graphicsData, webGLData) {
     }
 }
 
-},{"../../../math":63,"../../../utils":118}],55:[function(require,module,exports){
+},{"../../../math":55,"../../../utils":110}],47:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -11033,7 +9151,7 @@ function buildPoly(graphicsData, webGLData, webGLDataNativeLines) {
     }
 }
 
-},{"../../../utils":118,"./buildLine":54,"earcut":10}],56:[function(require,module,exports){
+},{"../../../utils":110,"./buildLine":46,"earcut":2}],48:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -11109,7 +9227,7 @@ function buildRectangle(graphicsData, webGLData, webGLDataNativeLines) {
     }
 }
 
-},{"../../../utils":118,"./buildLine":54}],57:[function(require,module,exports){
+},{"../../../utils":110,"./buildLine":46}],49:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -11265,7 +9383,7 @@ function quadraticBezierCurve(fromX, fromY, cpX, cpY, toX, toY) {
     return points;
 }
 
-},{"../../../utils":118,"./buildLine":54,"earcut":10}],58:[function(require,module,exports){
+},{"../../../utils":110,"./buildLine":46,"earcut":2}],50:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -11651,7 +9769,7 @@ exports.WebGLRenderer = _WebGLRenderer2.default; /**
                                                   * @namespace PIXI
                                                   */
 
-},{"./Application":36,"./Shader":37,"./autoDetectRenderer":38,"./const":39,"./display/Bounds":40,"./display/Container":41,"./display/DisplayObject":42,"./display/Transform":43,"./display/TransformBase":44,"./display/TransformStatic":45,"./graphics/Graphics":46,"./graphics/GraphicsData":47,"./graphics/canvas/CanvasGraphicsRenderer":48,"./graphics/webgl/GraphicsRenderer":50,"./math":63,"./renderers/canvas/CanvasRenderer":70,"./renderers/canvas/utils/CanvasRenderTarget":72,"./renderers/webgl/WebGLRenderer":77,"./renderers/webgl/filters/Filter":79,"./renderers/webgl/filters/spriteMask/SpriteMaskFilter":82,"./renderers/webgl/managers/WebGLManager":86,"./renderers/webgl/utils/ObjectRenderer":87,"./renderers/webgl/utils/Quad":88,"./renderers/webgl/utils/RenderTarget":89,"./settings":94,"./sprites/Sprite":95,"./sprites/canvas/CanvasSpriteRenderer":96,"./sprites/canvas/CanvasTinter":97,"./sprites/webgl/SpriteRenderer":99,"./text/Text":101,"./text/TextMetrics":102,"./text/TextStyle":103,"./textures/BaseRenderTexture":104,"./textures/BaseTexture":105,"./textures/RenderTexture":106,"./textures/Spritesheet":107,"./textures/Texture":108,"./textures/TextureMatrix":109,"./textures/TextureUvs":110,"./textures/VideoBaseTexture":111,"./ticker":114,"./utils":118,"pixi-gl-core":22}],59:[function(require,module,exports){
+},{"./Application":28,"./Shader":29,"./autoDetectRenderer":30,"./const":31,"./display/Bounds":32,"./display/Container":33,"./display/DisplayObject":34,"./display/Transform":35,"./display/TransformBase":36,"./display/TransformStatic":37,"./graphics/Graphics":38,"./graphics/GraphicsData":39,"./graphics/canvas/CanvasGraphicsRenderer":40,"./graphics/webgl/GraphicsRenderer":42,"./math":55,"./renderers/canvas/CanvasRenderer":62,"./renderers/canvas/utils/CanvasRenderTarget":64,"./renderers/webgl/WebGLRenderer":69,"./renderers/webgl/filters/Filter":71,"./renderers/webgl/filters/spriteMask/SpriteMaskFilter":74,"./renderers/webgl/managers/WebGLManager":78,"./renderers/webgl/utils/ObjectRenderer":79,"./renderers/webgl/utils/Quad":80,"./renderers/webgl/utils/RenderTarget":81,"./settings":86,"./sprites/Sprite":87,"./sprites/canvas/CanvasSpriteRenderer":88,"./sprites/canvas/CanvasTinter":89,"./sprites/webgl/SpriteRenderer":91,"./text/Text":93,"./text/TextMetrics":94,"./text/TextStyle":95,"./textures/BaseRenderTexture":96,"./textures/BaseTexture":97,"./textures/RenderTexture":98,"./textures/Spritesheet":99,"./textures/Texture":100,"./textures/TextureMatrix":101,"./textures/TextureUvs":102,"./textures/VideoBaseTexture":103,"./ticker":106,"./utils":110,"pixi-gl-core":14}],51:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -11844,7 +9962,7 @@ var GroupD8 = {
 
 exports.default = GroupD8;
 
-},{"./Matrix":60}],60:[function(require,module,exports){
+},{"./Matrix":52}],52:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -12375,7 +10493,7 @@ var Matrix = function () {
 
 exports.default = Matrix;
 
-},{"./Point":62}],61:[function(require,module,exports){
+},{"./Point":54}],53:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -12492,7 +10610,7 @@ var ObservablePoint = function () {
 
 exports.default = ObservablePoint;
 
-},{}],62:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -12583,7 +10701,7 @@ var Point = function () {
 
 exports.default = Point;
 
-},{}],63:[function(require,module,exports){
+},{}],55:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -12671,7 +10789,7 @@ Object.defineProperty(exports, 'RoundedRectangle', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./GroupD8":59,"./Matrix":60,"./ObservablePoint":61,"./Point":62,"./shapes/Circle":64,"./shapes/Ellipse":65,"./shapes/Polygon":66,"./shapes/Rectangle":67,"./shapes/RoundedRectangle":68}],64:[function(require,module,exports){
+},{"./GroupD8":51,"./Matrix":52,"./ObservablePoint":53,"./Point":54,"./shapes/Circle":56,"./shapes/Ellipse":57,"./shapes/Polygon":58,"./shapes/Rectangle":59,"./shapes/RoundedRectangle":60}],56:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -12785,7 +10903,7 @@ var Circle = function () {
 
 exports.default = Circle;
 
-},{"../../const":39,"./Rectangle":67}],65:[function(require,module,exports){
+},{"../../const":31,"./Rectangle":59}],57:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -12907,7 +11025,7 @@ var Ellipse = function () {
 
 exports.default = Ellipse;
 
-},{"../../const":39,"./Rectangle":67}],66:[function(require,module,exports){
+},{"../../const":31,"./Rectangle":59}],58:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -13038,7 +11156,7 @@ var Polygon = function () {
 
 exports.default = Polygon;
 
-},{"../../const":39,"../Point":62}],67:[function(require,module,exports){
+},{"../../const":31,"../Point":54}],59:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -13301,7 +11419,7 @@ var Rectangle = function () {
 
 exports.default = Rectangle;
 
-},{"../../const":39}],68:[function(require,module,exports){
+},{"../../const":31}],60:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -13434,7 +11552,7 @@ var RoundedRectangle = function () {
 
 exports.default = RoundedRectangle;
 
-},{"../../const":39}],69:[function(require,module,exports){
+},{"../../const":31}],61:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -13799,7 +11917,7 @@ var SystemRenderer = function (_EventEmitter) {
 
 exports.default = SystemRenderer;
 
-},{"../const":39,"../display/Container":41,"../math":63,"../settings":94,"../textures/RenderTexture":106,"../utils":118,"eventemitter3":11}],70:[function(require,module,exports){
+},{"../const":31,"../display/Container":33,"../math":55,"../settings":86,"../textures/RenderTexture":98,"../utils":110,"eventemitter3":3}],62:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -14164,7 +12282,7 @@ var CanvasRenderer = function (_SystemRenderer) {
 exports.default = CanvasRenderer;
 _utils.pluginTarget.mixin(CanvasRenderer);
 
-},{"../../const":39,"../../settings":94,"../../utils":118,"../SystemRenderer":69,"./utils/CanvasMaskManager":71,"./utils/CanvasRenderTarget":72,"./utils/mapCanvasBlendModesToPixi":74}],71:[function(require,module,exports){
+},{"../../const":31,"../../settings":86,"../../utils":110,"../SystemRenderer":61,"./utils/CanvasMaskManager":63,"./utils/CanvasRenderTarget":64,"./utils/mapCanvasBlendModesToPixi":66}],63:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -14333,7 +12451,7 @@ var CanvasMaskManager = function () {
 
 exports.default = CanvasMaskManager;
 
-},{"../../../const":39}],72:[function(require,module,exports){
+},{"../../../const":31}],64:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -14457,7 +12575,7 @@ var CanvasRenderTarget = function () {
 
 exports.default = CanvasRenderTarget;
 
-},{"../../../settings":94}],73:[function(require,module,exports){
+},{"../../../settings":86}],65:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -14518,7 +12636,7 @@ function canUseNewCanvasBlendModes() {
     return data[0] === 255 && data[1] === 0 && data[2] === 0;
 }
 
-},{}],74:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -14590,7 +12708,7 @@ function mapCanvasBlendModesToPixi() {
     return array;
 }
 
-},{"../../../const":39,"./canUseNewCanvasBlendModes":73}],75:[function(require,module,exports){
+},{"../../../const":31,"./canUseNewCanvasBlendModes":65}],67:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -14710,7 +12828,7 @@ var TextureGarbageCollector = function () {
 
 exports.default = TextureGarbageCollector;
 
-},{"../../const":39,"../../settings":94}],76:[function(require,module,exports){
+},{"../../const":31,"../../settings":86}],68:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -14966,7 +13084,7 @@ var TextureManager = function () {
 
 exports.default = TextureManager;
 
-},{"../../const":39,"../../utils":118,"./utils/RenderTarget":89,"pixi-gl-core":22}],77:[function(require,module,exports){
+},{"../../const":31,"../../utils":110,"./utils/RenderTarget":81,"pixi-gl-core":14}],69:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -15783,7 +13901,7 @@ var WebGLRenderer = function (_SystemRenderer) {
 exports.default = WebGLRenderer;
 _utils.pluginTarget.mixin(WebGLRenderer);
 
-},{"../../const":39,"../../textures/BaseTexture":105,"../../utils":118,"../SystemRenderer":69,"./TextureGarbageCollector":75,"./TextureManager":76,"./WebGLState":78,"./managers/FilterManager":83,"./managers/MaskManager":84,"./managers/StencilManager":85,"./utils/ObjectRenderer":87,"./utils/RenderTarget":89,"./utils/mapWebGLDrawModesToPixi":92,"./utils/validateContext":93,"pixi-gl-core":22}],78:[function(require,module,exports){
+},{"../../const":31,"../../textures/BaseTexture":97,"../../utils":110,"../SystemRenderer":61,"./TextureGarbageCollector":67,"./TextureManager":68,"./WebGLState":70,"./managers/FilterManager":75,"./managers/MaskManager":76,"./managers/StencilManager":77,"./utils/ObjectRenderer":79,"./utils/RenderTarget":81,"./utils/mapWebGLDrawModesToPixi":84,"./utils/validateContext":85,"pixi-gl-core":14}],70:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -16063,7 +14181,7 @@ var WebGLState = function () {
 
 exports.default = WebGLState;
 
-},{"./utils/mapWebGLBlendModesToPixi":91}],79:[function(require,module,exports){
+},{"./utils/mapWebGLBlendModesToPixi":83}],71:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -16259,7 +14377,7 @@ var Filter = function () {
 
 exports.default = Filter;
 
-},{"../../../const":39,"../../../settings":94,"../../../utils":118,"./extractUniformsFromSrc":80}],80:[function(require,module,exports){
+},{"../../../const":31,"../../../settings":86,"../../../utils":110,"./extractUniformsFromSrc":72}],72:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -16321,7 +14439,7 @@ function extractUniformsFromString(string) {
     return uniforms;
 }
 
-},{"pixi-gl-core":22}],81:[function(require,module,exports){
+},{"pixi-gl-core":14}],73:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -16380,7 +14498,7 @@ function calculateSpriteMatrix(outputMatrix, filterArea, textureSize, sprite) {
     return mappedMatrix;
 }
 
-},{"../../../math":63}],82:[function(require,module,exports){
+},{"../../../math":55}],74:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -16468,7 +14586,7 @@ var SpriteMaskFilter = function (_Filter) {
 
 exports.default = SpriteMaskFilter;
 
-},{"../../../../math":63,"../../../../textures/TextureMatrix":109,"../Filter":79,"path":1}],83:[function(require,module,exports){
+},{"../../../../math":55,"../../../../textures/TextureMatrix":101,"../Filter":71,"path":200}],75:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -17062,7 +15180,7 @@ var FilterManager = function (_WebGLManager) {
 
 exports.default = FilterManager;
 
-},{"../../../Shader":37,"../../../math":63,"../filters/filterTransforms":81,"../utils/Quad":88,"../utils/RenderTarget":89,"./WebGLManager":86,"bit-twiddle":9}],84:[function(require,module,exports){
+},{"../../../Shader":29,"../../../math":55,"../filters/filterTransforms":73,"../utils/Quad":80,"../utils/RenderTarget":81,"./WebGLManager":78,"bit-twiddle":1}],76:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -17272,7 +15390,7 @@ var MaskManager = function (_WebGLManager) {
 
 exports.default = MaskManager;
 
-},{"../filters/spriteMask/SpriteMaskFilter":82,"./WebGLManager":86}],85:[function(require,module,exports){
+},{"../filters/spriteMask/SpriteMaskFilter":74,"./WebGLManager":78}],77:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -17425,7 +15543,7 @@ var StencilManager = function (_WebGLManager) {
 
 exports.default = StencilManager;
 
-},{"./WebGLManager":86}],86:[function(require,module,exports){
+},{"./WebGLManager":78}],78:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -17480,7 +15598,7 @@ var WebGLManager = function () {
 
 exports.default = WebGLManager;
 
-},{}],87:[function(require,module,exports){
+},{}],79:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -17558,7 +15676,7 @@ var ObjectRenderer = function (_WebGLManager) {
 
 exports.default = ObjectRenderer;
 
-},{"../managers/WebGLManager":86}],88:[function(require,module,exports){
+},{"../managers/WebGLManager":78}],80:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -17739,7 +15857,7 @@ var Quad = function () {
 
 exports.default = Quad;
 
-},{"../../../utils/createIndicesForQuads":116,"pixi-gl-core":22}],89:[function(require,module,exports){
+},{"../../../utils/createIndicesForQuads":108,"pixi-gl-core":14}],81:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -18066,7 +16184,7 @@ var RenderTarget = function () {
 
 exports.default = RenderTarget;
 
-},{"../../../const":39,"../../../math":63,"../../../settings":94,"pixi-gl-core":22}],90:[function(require,module,exports){
+},{"../../../const":31,"../../../math":55,"../../../settings":86,"pixi-gl-core":14}],82:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -18141,7 +16259,7 @@ function generateIfTestSrc(maxIfs) {
     return src;
 }
 
-},{"pixi-gl-core":22}],91:[function(require,module,exports){
+},{"pixi-gl-core":14}],83:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -18190,7 +16308,7 @@ function mapWebGLBlendModesToPixi(gl) {
     return array;
 }
 
-},{"../../../const":39}],92:[function(require,module,exports){
+},{"../../../const":31}],84:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -18222,7 +16340,7 @@ function mapWebGLDrawModesToPixi(gl) {
   return object;
 }
 
-},{"../../../const":39}],93:[function(require,module,exports){
+},{"../../../const":31}],85:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -18238,7 +16356,7 @@ function validateContext(gl) {
     }
 }
 
-},{}],94:[function(require,module,exports){
+},{}],86:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -18473,7 +16591,7 @@ exports.default = {
 
 };
 
-},{"./utils/canUploadSameBuffer":115,"./utils/maxRecommendedTextures":120}],95:[function(require,module,exports){
+},{"./utils/canUploadSameBuffer":107,"./utils/maxRecommendedTextures":112}],87:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -19096,7 +17214,7 @@ var Sprite = function (_Container) {
 
 exports.default = Sprite;
 
-},{"../const":39,"../display/Container":41,"../math":63,"../textures/Texture":108,"../utils":118}],96:[function(require,module,exports){
+},{"../const":31,"../display/Container":33,"../math":55,"../textures/Texture":100,"../utils":110}],88:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -19249,7 +17367,7 @@ exports.default = CanvasSpriteRenderer;
 
 _CanvasRenderer2.default.registerPlugin('sprite', CanvasSpriteRenderer);
 
-},{"../../const":39,"../../math":63,"../../renderers/canvas/CanvasRenderer":70,"./CanvasTinter":97}],97:[function(require,module,exports){
+},{"../../const":31,"../../math":55,"../../renderers/canvas/CanvasRenderer":62,"./CanvasTinter":89}],89:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -19500,7 +17618,7 @@ CanvasTinter.tintMethod = CanvasTinter.canUseMultiply ? CanvasTinter.tintWithMul
 
 exports.default = CanvasTinter;
 
-},{"../../renderers/canvas/utils/canUseNewCanvasBlendModes":73,"../../utils":118}],98:[function(require,module,exports){
+},{"../../renderers/canvas/utils/canUseNewCanvasBlendModes":65,"../../utils":110}],90:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -19553,7 +17671,7 @@ var Buffer = function () {
 
 exports.default = Buffer;
 
-},{}],99:[function(require,module,exports){
+},{}],91:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -20104,7 +18222,7 @@ exports.default = SpriteRenderer;
 
 _WebGLRenderer2.default.registerPlugin('sprite', SpriteRenderer);
 
-},{"../../renderers/webgl/WebGLRenderer":77,"../../renderers/webgl/utils/ObjectRenderer":87,"../../renderers/webgl/utils/checkMaxIfStatmentsInShader":90,"../../settings":94,"../../utils":118,"../../utils/createIndicesForQuads":116,"./BatchBuffer":98,"./generateMultiTextureShader":100,"bit-twiddle":9,"pixi-gl-core":22}],100:[function(require,module,exports){
+},{"../../renderers/webgl/WebGLRenderer":69,"../../renderers/webgl/utils/ObjectRenderer":79,"../../renderers/webgl/utils/checkMaxIfStatmentsInShader":82,"../../settings":86,"../../utils":110,"../../utils/createIndicesForQuads":108,"./BatchBuffer":90,"./generateMultiTextureShader":92,"bit-twiddle":1,"pixi-gl-core":14}],92:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -20167,7 +18285,7 @@ function generateSampleSrc(maxTextures) {
     return src;
 }
 
-},{"../../Shader":37,"path":1}],101:[function(require,module,exports){
+},{"../../Shader":29,"path":200}],93:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -20822,7 +18940,7 @@ var Text = function (_Sprite) {
 
 exports.default = Text;
 
-},{"../const":39,"../math":63,"../settings":94,"../sprites/Sprite":95,"../textures/Texture":108,"../utils":118,"../utils/trimCanvas":123,"./TextMetrics":102,"./TextStyle":103}],102:[function(require,module,exports){
+},{"../const":31,"../math":55,"../settings":86,"../sprites/Sprite":87,"../textures/Texture":100,"../utils":110,"../utils/trimCanvas":115,"./TextMetrics":94,"./TextStyle":95}],94:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -21125,7 +19243,7 @@ TextMetrics._context = canvas.getContext('2d');
  */
 TextMetrics._fonts = {};
 
-},{}],103:[function(require,module,exports){
+},{}],95:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -21927,7 +20045,7 @@ function deepCopyProperties(target, source, propertyObj) {
     }
 }
 
-},{"../const":39,"../utils":118}],104:[function(require,module,exports){
+},{"../const":31,"../utils":110}],96:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -22089,7 +20207,7 @@ var BaseRenderTexture = function (_BaseTexture) {
 
 exports.default = BaseRenderTexture;
 
-},{"../settings":94,"./BaseTexture":105}],105:[function(require,module,exports){
+},{"../settings":86,"./BaseTexture":97}],97:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -22935,7 +21053,7 @@ var BaseTexture = function (_EventEmitter) {
 
 exports.default = BaseTexture;
 
-},{"../settings":94,"../utils":118,"../utils/determineCrossOrigin":117,"bit-twiddle":9,"eventemitter3":11}],106:[function(require,module,exports){
+},{"../settings":86,"../utils":110,"../utils/determineCrossOrigin":109,"bit-twiddle":1,"eventemitter3":3}],98:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -23089,7 +21207,7 @@ var RenderTexture = function (_Texture) {
 
 exports.default = RenderTexture;
 
-},{"./BaseRenderTexture":104,"./Texture":108}],107:[function(require,module,exports){
+},{"./BaseRenderTexture":96,"./Texture":100}],99:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -23351,7 +21469,7 @@ var Spritesheet = function () {
 
 exports.default = Spritesheet;
 
-},{"../":58,"../utils":118}],108:[function(require,module,exports){
+},{"../":50,"../utils":110}],100:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -24043,7 +22161,7 @@ Texture.WHITE = createWhiteTexture();
 removeAllHandlers(Texture.WHITE);
 removeAllHandlers(Texture.WHITE.baseTexture);
 
-},{"../math":63,"../settings":94,"../utils":118,"./BaseTexture":105,"./TextureUvs":110,"./VideoBaseTexture":111,"eventemitter3":11}],109:[function(require,module,exports){
+},{"../math":55,"../settings":86,"../utils":110,"./BaseTexture":97,"./TextureUvs":102,"./VideoBaseTexture":103,"eventemitter3":3}],101:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -24207,7 +22325,7 @@ var TextureMatrix = function () {
 
 exports.default = TextureMatrix;
 
-},{"../math/Matrix":60}],110:[function(require,module,exports){
+},{"../math/Matrix":52}],102:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -24312,7 +22430,7 @@ var TextureUvs = function () {
 
 exports.default = TextureUvs;
 
-},{"../math/GroupD8":59}],111:[function(require,module,exports){
+},{"../math/GroupD8":51}],103:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -24654,7 +22772,7 @@ function createSource(path, type) {
     return source;
 }
 
-},{"../const":39,"../ticker":114,"../utils":118,"../utils/determineCrossOrigin":117,"./BaseTexture":105}],112:[function(require,module,exports){
+},{"../const":31,"../ticker":106,"../utils":110,"../utils/determineCrossOrigin":109,"./BaseTexture":97}],104:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -25127,7 +23245,7 @@ var Ticker = function () {
 
 exports.default = Ticker;
 
-},{"../const":39,"../settings":94,"./TickerListener":113}],113:[function(require,module,exports){
+},{"../const":31,"../settings":86,"./TickerListener":105}],105:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -25301,7 +23419,7 @@ var TickerListener = function () {
 
 exports.default = TickerListener;
 
-},{}],114:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -25381,7 +23499,7 @@ shared.destroy = function () {
 exports.shared = shared;
 exports.Ticker = _Ticker2.default;
 
-},{"./Ticker":112}],115:[function(require,module,exports){
+},{"./Ticker":104}],107:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -25395,7 +23513,7 @@ function canUploadSameBuffer() {
 	return !ios;
 }
 
-},{}],116:[function(require,module,exports){
+},{}],108:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -25429,7 +23547,7 @@ function createIndicesForQuads(size) {
     return indices;
 }
 
-},{}],117:[function(require,module,exports){
+},{}],109:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -25485,7 +23603,7 @@ function determineCrossOrigin(url) {
     return '';
 }
 
-},{"url":7}],118:[function(require,module,exports){
+},{"url":206}],110:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -25959,7 +24077,7 @@ function premultiplyTintToRgba(tint, alpha, out, premultiply) {
     return out;
 }
 
-},{"../const":39,"../settings":94,"./mapPremultipliedBlendModes":119,"./mixin":121,"./pluginTarget":122,"eventemitter3":11,"ismobilejs":12,"remove-array-items":182}],119:[function(require,module,exports){
+},{"../const":31,"../settings":86,"./mapPremultipliedBlendModes":111,"./mixin":113,"./pluginTarget":114,"eventemitter3":3,"ismobilejs":4,"remove-array-items":174}],111:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -26002,7 +24120,7 @@ function mapPremultipliedBlendModes() {
     return array;
 }
 
-},{"../const":39}],120:[function(require,module,exports){
+},{"../const":31}],112:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -26024,7 +24142,7 @@ function maxRecommendedTextures(max) {
     return max;
 }
 
-},{"ismobilejs":12}],121:[function(require,module,exports){
+},{"ismobilejs":4}],113:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -26086,7 +24204,7 @@ function performMixins() {
     mixins.length = 0;
 }
 
-},{}],122:[function(require,module,exports){
+},{}],114:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -26152,7 +24270,7 @@ exports.default = {
     }
 };
 
-},{}],123:[function(require,module,exports){
+},{}],115:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -26228,7 +24346,7 @@ function trimCanvas(canvas) {
     };
 }
 
-},{}],124:[function(require,module,exports){
+},{}],116:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -27372,7 +25490,7 @@ function deprecation(core) {
     }
 }
 
-},{}],125:[function(require,module,exports){
+},{}],117:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -27552,7 +25670,7 @@ exports.default = CanvasExtract;
 
 core.CanvasRenderer.registerPlugin('extract', CanvasExtract);
 
-},{"../../core":58}],126:[function(require,module,exports){
+},{"../../core":50}],118:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -27577,7 +25695,7 @@ Object.defineProperty(exports, 'canvas', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./canvas/CanvasExtract":125,"./webgl/WebGLExtract":127}],127:[function(require,module,exports){
+},{"./canvas/CanvasExtract":117,"./webgl/WebGLExtract":119}],119:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -27800,7 +25918,7 @@ exports.default = WebGLExtract;
 
 core.WebGLRenderer.registerPlugin('extract', WebGLExtract);
 
-},{"../../core":58}],128:[function(require,module,exports){
+},{"../../core":50}],120:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -28209,7 +26327,7 @@ var AnimatedSprite = function (_core$Sprite) {
 
 exports.default = AnimatedSprite;
 
-},{"../core":58}],129:[function(require,module,exports){
+},{"../core":50}],121:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -28800,7 +26918,7 @@ exports.default = BitmapText;
 
 BitmapText.fonts = {};
 
-},{"../core":58,"../core/math/ObservablePoint":61,"../core/settings":94,"../core/utils":118}],130:[function(require,module,exports){
+},{"../core":50,"../core/math/ObservablePoint":53,"../core/settings":86,"../core/utils":110}],122:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -29246,7 +27364,7 @@ var TilingSprite = function (_core$Sprite) {
 
 exports.default = TilingSprite;
 
-},{"../core":58,"../core/sprites/canvas/CanvasTinter":97}],131:[function(require,module,exports){
+},{"../core":50,"../core/sprites/canvas/CanvasTinter":89}],123:[function(require,module,exports){
 'use strict';
 
 var _core = require('../core');
@@ -29650,7 +27768,7 @@ DisplayObject.prototype._cacheAsBitmapDestroy = function _cacheAsBitmapDestroy(o
     this.destroy(options);
 };
 
-},{"../core":58,"../core/textures/BaseTexture":105,"../core/textures/Texture":108,"../core/utils":118}],132:[function(require,module,exports){
+},{"../core":50,"../core/textures/BaseTexture":97,"../core/textures/Texture":100,"../core/utils":110}],124:[function(require,module,exports){
 'use strict';
 
 var _core = require('../core');
@@ -29684,7 +27802,7 @@ core.Container.prototype.getChildByName = function getChildByName(name) {
     return null;
 };
 
-},{"../core":58}],133:[function(require,module,exports){
+},{"../core":50}],125:[function(require,module,exports){
 'use strict';
 
 var _core = require('../core');
@@ -29717,7 +27835,7 @@ core.DisplayObject.prototype.getGlobalPosition = function getGlobalPosition() {
     return point;
 };
 
-},{"../core":58}],134:[function(require,module,exports){
+},{"../core":50}],126:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -29769,7 +27887,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 // imported for side effect of extending the prototype only, contains no exports
 
-},{"./AnimatedSprite":128,"./BitmapText":129,"./TilingSprite":130,"./cacheAsBitmap":131,"./getChildByName":132,"./getGlobalPosition":133,"./webgl/TilingSpriteRenderer":135}],135:[function(require,module,exports){
+},{"./AnimatedSprite":120,"./BitmapText":121,"./TilingSprite":122,"./cacheAsBitmap":123,"./getChildByName":124,"./getGlobalPosition":125,"./webgl/TilingSpriteRenderer":127}],127:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -29931,7 +28049,7 @@ exports.default = TilingSpriteRenderer;
 
 core.WebGLRenderer.registerPlugin('tilingSprite', TilingSpriteRenderer);
 
-},{"../../core":58,"../../core/const":39,"path":1}],136:[function(require,module,exports){
+},{"../../core":50,"../../core/const":31,"path":200}],128:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -30015,7 +28133,7 @@ var AlphaFilter = function (_core$Filter) {
 
 exports.default = AlphaFilter;
 
-},{"../../core":58,"path":1}],137:[function(require,module,exports){
+},{"../../core":50,"path":200}],129:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -30189,7 +28307,7 @@ var BlurFilter = function (_core$Filter) {
 
 exports.default = BlurFilter;
 
-},{"../../core":58,"./BlurXFilter":138,"./BlurYFilter":139}],138:[function(require,module,exports){
+},{"../../core":50,"./BlurXFilter":130,"./BlurYFilter":131}],130:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -30355,7 +28473,7 @@ var BlurXFilter = function (_core$Filter) {
 
 exports.default = BlurXFilter;
 
-},{"../../core":58,"./generateBlurFragSource":140,"./generateBlurVertSource":141,"./getMaxBlurKernelSize":142}],139:[function(require,module,exports){
+},{"../../core":50,"./generateBlurFragSource":132,"./generateBlurVertSource":133,"./getMaxBlurKernelSize":134}],131:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -30520,7 +28638,7 @@ var BlurYFilter = function (_core$Filter) {
 
 exports.default = BlurYFilter;
 
-},{"../../core":58,"./generateBlurFragSource":140,"./generateBlurVertSource":141,"./getMaxBlurKernelSize":142}],140:[function(require,module,exports){
+},{"../../core":50,"./generateBlurFragSource":132,"./generateBlurVertSource":133,"./getMaxBlurKernelSize":134}],132:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -30567,7 +28685,7 @@ function generateFragBlurSource(kernelSize) {
     return fragSource;
 }
 
-},{}],141:[function(require,module,exports){
+},{}],133:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -30611,7 +28729,7 @@ function generateVertBlurSource(kernelSize, x) {
     return vertSource;
 }
 
-},{}],142:[function(require,module,exports){
+},{}],134:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -30627,7 +28745,7 @@ function getMaxKernelSize(gl) {
     return kernelSize;
 }
 
-},{}],143:[function(require,module,exports){
+},{}],135:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -31178,7 +29296,7 @@ var ColorMatrixFilter = function (_core$Filter) {
 exports.default = ColorMatrixFilter;
 ColorMatrixFilter.prototype.grayscale = ColorMatrixFilter.prototype.greyscale;
 
-},{"../../core":58,"path":1}],144:[function(require,module,exports){
+},{"../../core":50,"path":200}],136:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -31288,7 +29406,7 @@ var DisplacementFilter = function (_core$Filter) {
 
 exports.default = DisplacementFilter;
 
-},{"../../core":58,"path":1}],145:[function(require,module,exports){
+},{"../../core":50,"path":200}],137:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -31342,7 +29460,7 @@ var FXAAFilter = function (_core$Filter) {
 
 exports.default = FXAAFilter;
 
-},{"../../core":58,"path":1}],146:[function(require,module,exports){
+},{"../../core":50,"path":200}],138:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -31421,7 +29539,7 @@ Object.defineProperty(exports, 'AlphaFilter', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./alpha/AlphaFilter":136,"./blur/BlurFilter":137,"./blur/BlurXFilter":138,"./blur/BlurYFilter":139,"./colormatrix/ColorMatrixFilter":143,"./displacement/DisplacementFilter":144,"./fxaa/FXAAFilter":145,"./noise/NoiseFilter":147}],147:[function(require,module,exports){
+},{"./alpha/AlphaFilter":128,"./blur/BlurFilter":129,"./blur/BlurXFilter":130,"./blur/BlurYFilter":131,"./colormatrix/ColorMatrixFilter":135,"./displacement/DisplacementFilter":136,"./fxaa/FXAAFilter":137,"./noise/NoiseFilter":139}],139:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -31518,7 +29636,7 @@ var NoiseFilter = function (_core$Filter) {
 
 exports.default = NoiseFilter;
 
-},{"../../core":58,"path":1}],148:[function(require,module,exports){
+},{"../../core":50,"path":200}],140:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -31632,7 +29750,7 @@ if (typeof _deprecation2.default === 'function') {
 global.PIXI = exports; // eslint-disable-line
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./accessibility":35,"./core":58,"./deprecation":124,"./extract":126,"./extras":134,"./filters":146,"./interaction":153,"./loaders":156,"./mesh":165,"./particles":168,"./polyfill":174,"./prepare":178}],149:[function(require,module,exports){
+},{"./accessibility":27,"./core":50,"./deprecation":116,"./extract":118,"./extras":126,"./filters":138,"./interaction":145,"./loaders":148,"./mesh":157,"./particles":160,"./polyfill":166,"./prepare":170}],141:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -31856,7 +29974,7 @@ var InteractionData = function () {
 
 exports.default = InteractionData;
 
-},{"../core":58}],150:[function(require,module,exports){
+},{"../core":50}],142:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -31941,7 +30059,7 @@ var InteractionEvent = function () {
 
 exports.default = InteractionEvent;
 
-},{}],151:[function(require,module,exports){
+},{}],143:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -33700,7 +31818,7 @@ exports.default = InteractionManager;
 core.WebGLRenderer.registerPlugin('interaction', InteractionManager);
 core.CanvasRenderer.registerPlugin('interaction', InteractionManager);
 
-},{"../core":58,"./InteractionData":149,"./InteractionEvent":150,"./InteractionTrackingData":152,"./interactiveTarget":154,"eventemitter3":11}],152:[function(require,module,exports){
+},{"../core":50,"./InteractionData":141,"./InteractionEvent":142,"./InteractionTrackingData":144,"./interactiveTarget":146,"eventemitter3":3}],144:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -33876,7 +31994,7 @@ InteractionTrackingData.FLAGS = Object.freeze({
     RIGHT_DOWN: 1 << 2
 });
 
-},{}],153:[function(require,module,exports){
+},{}],145:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -33928,7 +32046,7 @@ Object.defineProperty(exports, 'InteractionEvent', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./InteractionData":149,"./InteractionEvent":150,"./InteractionManager":151,"./InteractionTrackingData":152,"./interactiveTarget":154}],154:[function(require,module,exports){
+},{"./InteractionData":141,"./InteractionEvent":142,"./InteractionManager":143,"./InteractionTrackingData":144,"./interactiveTarget":146}],146:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -34045,7 +32163,7 @@ exports.default = {
   _trackedPointers: undefined
 };
 
-},{}],155:[function(require,module,exports){
+},{}],147:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -34137,7 +32255,7 @@ function parse(resource, texture) {
     resource.bitmapFont = _extras.BitmapText.registerFont(resource.data, texture);
 }
 
-},{"../core":58,"../extras":134,"path":1,"resource-loader":187}],156:[function(require,module,exports){
+},{"../core":50,"../extras":126,"path":200,"resource-loader":179}],148:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -34265,7 +32383,7 @@ AppPrototype.destroy = function destroy(removeView) {
     this._parentDestroy(removeView);
 };
 
-},{"../core/Application":36,"./bitmapFontParser":155,"./loader":157,"./spritesheetParser":158,"./textureParser":159,"resource-loader":187}],157:[function(require,module,exports){
+},{"../core/Application":28,"./bitmapFontParser":147,"./loader":149,"./spritesheetParser":150,"./textureParser":151,"resource-loader":179}],149:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -34436,7 +32554,7 @@ var Resource = _resourceLoader2.default.Resource;
 
 Resource.setExtensionXhrType('fnt', Resource.XHR_RESPONSE_TYPE.DOCUMENT);
 
-},{"./bitmapFontParser":155,"./spritesheetParser":158,"./textureParser":159,"eventemitter3":11,"resource-loader":187,"resource-loader/lib/middlewares/parsing/blob":188}],158:[function(require,module,exports){
+},{"./bitmapFontParser":147,"./spritesheetParser":150,"./textureParser":151,"eventemitter3":3,"resource-loader":179,"resource-loader/lib/middlewares/parsing/blob":180}],150:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -34495,7 +32613,7 @@ function getResourcePath(resource, baseUrl) {
     return _url2.default.resolve(resource.url.replace(baseUrl, ''), resource.data.meta.image);
 }
 
-},{"../core":58,"resource-loader":187,"url":7}],159:[function(require,module,exports){
+},{"../core":50,"resource-loader":179,"url":206}],151:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -34518,7 +32636,7 @@ var _Texture2 = _interopRequireDefault(_Texture);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"../core/textures/Texture":108,"resource-loader":187}],160:[function(require,module,exports){
+},{"../core/textures/Texture":100,"resource-loader":179}],152:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -34887,7 +33005,7 @@ Mesh.DRAW_MODES = {
   TRIANGLES: 1
 };
 
-},{"../core":58,"../core/textures/Texture":108}],161:[function(require,module,exports){
+},{"../core":50,"../core/textures/Texture":100}],153:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -35273,7 +33391,7 @@ var NineSlicePlane = function (_Plane) {
 
 exports.default = NineSlicePlane;
 
-},{"./Plane":162}],162:[function(require,module,exports){
+},{"./Plane":154}],154:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -35414,7 +33532,7 @@ var Plane = function (_Mesh) {
 
 exports.default = Plane;
 
-},{"./Mesh":160}],163:[function(require,module,exports){
+},{"./Mesh":152}],155:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -35650,7 +33768,7 @@ var Rope = function (_Mesh) {
 
 exports.default = Rope;
 
-},{"./Mesh":160}],164:[function(require,module,exports){
+},{"./Mesh":152}],156:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -35933,7 +34051,7 @@ exports.default = MeshSpriteRenderer;
 
 core.CanvasRenderer.registerPlugin('mesh', MeshSpriteRenderer);
 
-},{"../../core":58,"../Mesh":160}],165:[function(require,module,exports){
+},{"../../core":50,"../Mesh":152}],157:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -35994,7 +34112,7 @@ Object.defineProperty(exports, 'Rope', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./Mesh":160,"./NineSlicePlane":161,"./Plane":162,"./Rope":163,"./canvas/CanvasMeshRenderer":164,"./webgl/MeshRenderer":166}],166:[function(require,module,exports){
+},{"./Mesh":152,"./NineSlicePlane":153,"./Plane":154,"./Rope":155,"./canvas/CanvasMeshRenderer":156,"./webgl/MeshRenderer":158}],158:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -36145,7 +34263,7 @@ exports.default = MeshRenderer;
 
 core.WebGLRenderer.registerPlugin('mesh', MeshRenderer);
 
-},{"../../core":58,"../Mesh":160,"path":1,"pixi-gl-core":22}],167:[function(require,module,exports){
+},{"../../core":50,"../Mesh":152,"path":200,"pixi-gl-core":14}],159:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -36524,7 +34642,7 @@ var ParticleContainer = function (_core$Container) {
 
 exports.default = ParticleContainer;
 
-},{"../core":58,"../core/utils":118}],168:[function(require,module,exports){
+},{"../core":50,"../core/utils":110}],160:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -36549,7 +34667,7 @@ Object.defineProperty(exports, 'ParticleRenderer', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./ParticleContainer":167,"./webgl/ParticleRenderer":170}],169:[function(require,module,exports){
+},{"./ParticleContainer":159,"./webgl/ParticleRenderer":162}],161:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -36796,7 +34914,7 @@ var ParticleBuffer = function () {
 
 exports.default = ParticleBuffer;
 
-},{"../../core/utils/createIndicesForQuads":116,"pixi-gl-core":22}],170:[function(require,module,exports){
+},{"../../core/utils/createIndicesForQuads":108,"pixi-gl-core":14}],162:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -37272,7 +35390,7 @@ exports.default = ParticleRenderer;
 
 core.WebGLRenderer.registerPlugin('particle', ParticleRenderer);
 
-},{"../../core":58,"../../core/utils":118,"./ParticleBuffer":169,"./ParticleShader":171}],171:[function(require,module,exports){
+},{"../../core":50,"../../core/utils":110,"./ParticleBuffer":161,"./ParticleShader":163}],163:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -37315,7 +35433,7 @@ var ParticleShader = function (_Shader) {
 
 exports.default = ParticleShader;
 
-},{"../../core/Shader":37}],172:[function(require,module,exports){
+},{"../../core/Shader":29}],164:[function(require,module,exports){
 "use strict";
 
 // References:
@@ -37333,7 +35451,7 @@ if (!Math.sign) {
     };
 }
 
-},{}],173:[function(require,module,exports){
+},{}],165:[function(require,module,exports){
 'use strict';
 
 var _objectAssign = require('object-assign');
@@ -37348,7 +35466,7 @@ if (!Object.assign) {
 // https://github.com/sindresorhus/object-assign
 // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/assign
 
-},{"object-assign":14}],174:[function(require,module,exports){
+},{"object-assign":6}],166:[function(require,module,exports){
 'use strict';
 
 require('./Object.assign');
@@ -37373,7 +35491,7 @@ if (!window.Uint16Array) {
     window.Uint16Array = Array;
 }
 
-},{"./Math.sign":172,"./Object.assign":173,"./requestAnimationFrame":175}],175:[function(require,module,exports){
+},{"./Math.sign":164,"./Object.assign":165,"./requestAnimationFrame":167}],167:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -37450,7 +35568,7 @@ if (!global.cancelAnimationFrame) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],176:[function(require,module,exports){
+},{}],168:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -37938,7 +36056,7 @@ function findTextStyle(item, queue) {
     return false;
 }
 
-},{"../core":58,"./limiters/CountLimiter":179}],177:[function(require,module,exports){
+},{"../core":50,"./limiters/CountLimiter":171}],169:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -38058,7 +36176,7 @@ function uploadBaseTextures(prepare, item) {
 
 core.CanvasRenderer.registerPlugin('prepare', CanvasPrepare);
 
-},{"../../core":58,"../BasePrepare":176}],178:[function(require,module,exports){
+},{"../../core":50,"../BasePrepare":168}],170:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -38110,7 +36228,7 @@ Object.defineProperty(exports, 'TimeLimiter', {
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-},{"./BasePrepare":176,"./canvas/CanvasPrepare":177,"./limiters/CountLimiter":179,"./limiters/TimeLimiter":180,"./webgl/WebGLPrepare":181}],179:[function(require,module,exports){
+},{"./BasePrepare":168,"./canvas/CanvasPrepare":169,"./limiters/CountLimiter":171,"./limiters/TimeLimiter":172,"./webgl/WebGLPrepare":173}],171:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -38168,7 +36286,7 @@ var CountLimiter = function () {
 
 exports.default = CountLimiter;
 
-},{}],180:[function(require,module,exports){
+},{}],172:[function(require,module,exports){
 "use strict";
 
 exports.__esModule = true;
@@ -38226,7 +36344,7 @@ var TimeLimiter = function () {
 
 exports.default = TimeLimiter;
 
-},{}],181:[function(require,module,exports){
+},{}],173:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -38348,7 +36466,7 @@ function findGraphics(item, queue) {
 
 core.WebGLRenderer.registerPlugin('prepare', WebGLPrepare);
 
-},{"../../core":58,"../BasePrepare":176}],182:[function(require,module,exports){
+},{"../../core":50,"../BasePrepare":168}],174:[function(require,module,exports){
 'use strict'
 
 /**
@@ -38378,7 +36496,7 @@ module.exports = function removeItems(arr, startIdx, removeCount)
   arr.length = len
 }
 
-},{}],183:[function(require,module,exports){
+},{}],175:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -38996,7 +37114,7 @@ var Loader = function () {
 
 exports.default = Loader;
 
-},{"./Resource":184,"./async":185,"mini-signals":13,"parse-uri":15}],184:[function(require,module,exports){
+},{"./Resource":176,"./async":177,"mini-signals":5,"parse-uri":7}],176:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -40152,7 +38270,7 @@ function reqType(xhr) {
     return xhr.toString().replace('object ', '');
 }
 
-},{"mini-signals":13,"parse-uri":15}],185:[function(require,module,exports){
+},{"mini-signals":5,"parse-uri":7}],177:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -40361,7 +38479,7 @@ function queue(worker, concurrency) {
     return q;
 }
 
-},{}],186:[function(require,module,exports){
+},{}],178:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -40429,7 +38547,7 @@ function encodeBinary(input) {
     return output;
 }
 
-},{}],187:[function(require,module,exports){
+},{}],179:[function(require,module,exports){
 'use strict';
 
 // import Loader from './Loader';
@@ -40453,7 +38571,7 @@ module.exports = Loader;
 // export default Loader;
 module.exports.default = Loader;
 
-},{"./Loader":183,"./Resource":184,"./async":185,"./b64":186}],188:[function(require,module,exports){
+},{"./Loader":175,"./Resource":176,"./async":177,"./b64":178}],180:[function(require,module,exports){
 'use strict';
 
 exports.__esModule = true;
@@ -40541,7 +38659,7 @@ function blobMiddlewareFactory() {
     };
 }
 
-},{"../../Resource":184,"../../b64":186}],189:[function(require,module,exports){
+},{"../../Resource":176,"../../b64":178}],181:[function(require,module,exports){
 const Pixi = require('./js/pixi/index');
 
 window.addEventListener('load',
@@ -40553,7 +38671,7 @@ window.addEventListener('load',
   },
 false )
 
-},{"./js/pixi/index":198}],190:[function(require,module,exports){
+},{"./js/pixi/index":190}],182:[function(require,module,exports){
 //author: https://github.com/kittykatattack/learningPixi#the-hittestrectangle-function
 
 function detection(r1, r2, enemy) {
@@ -40618,7 +38736,7 @@ function detection(r1, r2, enemy) {
 
 module.exports.detection = detection;
 
-},{}],191:[function(require,module,exports){
+},{}],183:[function(require,module,exports){
 //author:https://github.com/kittykatattack/learningPixi#keyboard
 
 function keys(keyCode) {
@@ -40664,7 +38782,7 @@ function keys(keyCode) {
 
 module.exports.keys = keys;
 
-},{}],192:[function(require,module,exports){
+},{}],184:[function(require,module,exports){
 
 var data = {
   width: 175,
@@ -40684,7 +38802,7 @@ var data = {
 
 module.exports.data = data;
 
-},{}],193:[function(require,module,exports){
+},{}],185:[function(require,module,exports){
 const PIXI = require('pixi.js')
 const config = require('./config')
 
@@ -40724,13 +38842,19 @@ function menu( gameobj ) {
     _this.obj = mainMenu;
 
     //Create and config intro text
+    let playRect = new PIXI.Rectangle(0, 0, _this.width, _this.height);
+    let playTexture = new PIXI.Texture(
+      PIXI.utils.TextureCache['playBtn'],
+      playRect
+    );
+
     let introText = new PIXI.Text( _this.intro, _this.style );
     introText.anchor.set(0.5, 0.5);
 
     _this.obj.addChild(introText);
 
     //Create and config play button
-    let playBttn = new PIXI.Sprite( PIXI.Texture.WHITE );
+    let playBttn = new PIXI.Sprite(playTexture);
     playBttn.width = _this.width;
     playBttn.height = _this.height;
     introText.anchor.set(0.5, 0.5);
@@ -40753,7 +38877,7 @@ function menu( gameobj ) {
 
 module.exports.menu = menu;
 
-},{"./config":192,"pixi.js":148}],194:[function(require,module,exports){
+},{"./config":184,"pixi.js":140}],186:[function(require,module,exports){
 //Function to evenly measure any grouping of objects per the game grid
 
 function posX( grid, game, object, objectCount, iter, base ){
@@ -40775,7 +38899,7 @@ function posX( grid, game, object, objectCount, iter, base ){
 
 module.exports.posX = posX
 
-},{}],195:[function(require,module,exports){
+},{}],187:[function(require,module,exports){
 
 var data = {
   width: 150,
@@ -40791,7 +38915,7 @@ var data = {
 
 module.exports.data = data;
 
-},{}],196:[function(require,module,exports){
+},{}],188:[function(require,module,exports){
 const PIXI = require('pixi.js')
 const config = require('./config')
 
@@ -40863,14 +38987,18 @@ function score( gameobj ) {
 
 module.exports.score = score;
 
-},{"./config":195,"pixi.js":148}],197:[function(require,module,exports){
-const texture = "../assets/img/space_invaders_spritesheet.jpg"
+},{"./config":187,"pixi.js":140}],189:[function(require,module,exports){
+const texture = {
+  spriteSheet: "../assets/img/space_invaders_spritesheet.jpg",
+  base: "../assets/img/base.jpg",
+  play: "../assets/img/play.jpg"
+}
 
 module.exports = {
   texture: texture
 }
 
-},{}],198:[function(require,module,exports){
+},{}],190:[function(require,module,exports){
 const PIXI = require('pixi.js')
 const config = require('./options.js')
 const constants = require('./constants.js')
@@ -40959,7 +39087,9 @@ function game (){
 
     // Texture loader
     PIXI.loader
-      .add("spriteSheet", _this.texture)
+      .add("spriteSheet", _this.texture.spriteSheet)
+      .add("base", _this.texture.base)
+      .add("playBtn", _this.texture.play)
       .load(_this.setup)
 
   }
@@ -41172,7 +39302,7 @@ function game (){
 
 module.exports.game = game;
 
-},{"../common/collision":190,"../common/keyboard":191,"../common/menu/index":193,"../common/score/index":196,"../sprites/base/index":201,"../sprites/enemy/index":205,"../sprites/player/index":207,"./constants.js":197,"./options.js":199,"pixi.js":148}],199:[function(require,module,exports){
+},{"../common/collision":182,"../common/keyboard":183,"../common/menu/index":185,"../common/score/index":188,"../sprites/base/index":193,"../sprites/enemy/index":197,"../sprites/player/index":199,"./constants.js":189,"./options.js":191,"pixi.js":140}],191:[function(require,module,exports){
 var options = {
   width: 800,
   height: 600,
@@ -41183,18 +39313,19 @@ var options = {
 
 module.exports.options = options;
 
-},{}],200:[function(require,module,exports){
+},{}],192:[function(require,module,exports){
 
 var data = {
   width: 90,
   height: 80,
   scale: 0.5,
   baseCount: 4,
+  texture: "../assets/img/base.jpg"
 };
 
 module.exports.data = data;
 
-},{}],201:[function(require,module,exports){
+},{}],193:[function(require,module,exports){
 const PIXI = require('pixi.js')
 const position = require('../../common/position')
 const config = require('./config')
@@ -41207,10 +39338,10 @@ function base(gameobj, level) {
   const _this = this;
   const game = gameobj;
 
-  this.textures = []
   this.level = level;
   this.obj = null;
 
+  this.texture = config.data.texture;
   this.height = config.data.height;
   this.width = config.data.width;
   this.scale = config.data.scale;
@@ -41219,9 +39350,9 @@ function base(gameobj, level) {
   //Create bases and assiciated assets
   this.setup = function(){
 
-    let baseRect = new PIXI.Rectangle(89, 130, _this.height, _this.width);
+    let baseRect = new PIXI.Rectangle(0, 0, _this.width, _this.height);
     let baseTexture = new PIXI.Texture(
-      PIXI.utils.TextureCache['spriteSheet'],
+      PIXI.utils.TextureCache['base'],
       baseRect
     );
 
@@ -41266,7 +39397,7 @@ function base(gameobj, level) {
 
 module.exports.base = base;
 
-},{"../../common/position":194,"./config":200,"pixi.js":148}],202:[function(require,module,exports){
+},{"../../common/position":186,"./config":192,"pixi.js":140}],194:[function(require,module,exports){
 
 var data = {
   width: 7.5,
@@ -41276,7 +39407,7 @@ var data = {
 
 module.exports.data = data;
 
-},{}],203:[function(require,module,exports){
+},{}],195:[function(require,module,exports){
 const config = require('./config')
 
 
@@ -41373,7 +39504,7 @@ function bullet( gameobj, enemy ) {
 
 module.exports.bullet = bullet;
 
-},{"./config":202}],204:[function(require,module,exports){
+},{"./config":194}],196:[function(require,module,exports){
 
 var data = {
   width: 89,
@@ -41395,7 +39526,7 @@ var data = {
 
 module.exports.data = data;
 
-},{}],205:[function(require,module,exports){
+},{}],197:[function(require,module,exports){
 const PIXI = require('pixi.js')
 const Bullet = require('../bullet/index')
 
@@ -41607,7 +39738,7 @@ function enemy( gameobj, level ) {
 
 module.exports.enemy = enemy;
 
-},{"../../common/position":194,"../bullet/index":203,"./config":204,"pixi.js":148}],206:[function(require,module,exports){
+},{"../../common/position":186,"../bullet/index":195,"./config":196,"pixi.js":140}],198:[function(require,module,exports){
 //Modify player config settings to udpate sprites/game objects
 
 var data = {
@@ -41618,7 +39749,7 @@ var data = {
 
 module.exports.data = data;
 
-},{}],207:[function(require,module,exports){
+},{}],199:[function(require,module,exports){
 const PIXI = require('pixi.js')
 const config = require('./config')
 const Bullet = require('../bullet/index')
@@ -41689,13 +39820,13 @@ function player(name, gameobj) {
 
       case 'left':
         if( this.obj.x > (0 + game.offset + (_this.width * 0.65) ) ){
-          _this.obj.x = _this.obj.x-=5;
+          _this.obj.x = _this.obj.x-=7;
         };
         break;
 
       case 'right':
         if (_this.obj.x < (game.grid + game.offset - (_this.width * 0.65)) ){
-          _this.obj.x = _this.obj.x+=5;
+          _this.obj.x = _this.obj.x+=7;
         }
         break;
 
@@ -41708,4 +39839,1886 @@ function player(name, gameobj) {
 
 module.exports.player = player;
 
-},{"../bullet/index":203,"./config":206,"pixi.js":148}]},{},[189]);
+},{"../bullet/index":195,"./config":198,"pixi.js":140}],200:[function(require,module,exports){
+(function (process){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// resolves . and .. elements in a path array with directory names there
+// must be no slashes, empty elements, or device names (c:\) in the array
+// (so also no leading and trailing slashes - it does not distinguish
+// relative and absolute paths)
+function normalizeArray(parts, allowAboveRoot) {
+  // if the path tries to go above the root, `up` ends up > 0
+  var up = 0;
+  for (var i = parts.length - 1; i >= 0; i--) {
+    var last = parts[i];
+    if (last === '.') {
+      parts.splice(i, 1);
+    } else if (last === '..') {
+      parts.splice(i, 1);
+      up++;
+    } else if (up) {
+      parts.splice(i, 1);
+      up--;
+    }
+  }
+
+  // if the path is allowed to go above the root, restore leading ..s
+  if (allowAboveRoot) {
+    for (; up--; up) {
+      parts.unshift('..');
+    }
+  }
+
+  return parts;
+}
+
+// Split a filename into [root, dir, basename, ext], unix version
+// 'root' is just a slash, or nothing.
+var splitPathRe =
+    /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
+var splitPath = function(filename) {
+  return splitPathRe.exec(filename).slice(1);
+};
+
+// path.resolve([from ...], to)
+// posix version
+exports.resolve = function() {
+  var resolvedPath = '',
+      resolvedAbsolute = false;
+
+  for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
+    var path = (i >= 0) ? arguments[i] : process.cwd();
+
+    // Skip empty and invalid entries
+    if (typeof path !== 'string') {
+      throw new TypeError('Arguments to path.resolve must be strings');
+    } else if (!path) {
+      continue;
+    }
+
+    resolvedPath = path + '/' + resolvedPath;
+    resolvedAbsolute = path.charAt(0) === '/';
+  }
+
+  // At this point the path should be resolved to a full absolute path, but
+  // handle relative paths to be safe (might happen when process.cwd() fails)
+
+  // Normalize the path
+  resolvedPath = normalizeArray(filter(resolvedPath.split('/'), function(p) {
+    return !!p;
+  }), !resolvedAbsolute).join('/');
+
+  return ((resolvedAbsolute ? '/' : '') + resolvedPath) || '.';
+};
+
+// path.normalize(path)
+// posix version
+exports.normalize = function(path) {
+  var isAbsolute = exports.isAbsolute(path),
+      trailingSlash = substr(path, -1) === '/';
+
+  // Normalize the path
+  path = normalizeArray(filter(path.split('/'), function(p) {
+    return !!p;
+  }), !isAbsolute).join('/');
+
+  if (!path && !isAbsolute) {
+    path = '.';
+  }
+  if (path && trailingSlash) {
+    path += '/';
+  }
+
+  return (isAbsolute ? '/' : '') + path;
+};
+
+// posix version
+exports.isAbsolute = function(path) {
+  return path.charAt(0) === '/';
+};
+
+// posix version
+exports.join = function() {
+  var paths = Array.prototype.slice.call(arguments, 0);
+  return exports.normalize(filter(paths, function(p, index) {
+    if (typeof p !== 'string') {
+      throw new TypeError('Arguments to path.join must be strings');
+    }
+    return p;
+  }).join('/'));
+};
+
+
+// path.relative(from, to)
+// posix version
+exports.relative = function(from, to) {
+  from = exports.resolve(from).substr(1);
+  to = exports.resolve(to).substr(1);
+
+  function trim(arr) {
+    var start = 0;
+    for (; start < arr.length; start++) {
+      if (arr[start] !== '') break;
+    }
+
+    var end = arr.length - 1;
+    for (; end >= 0; end--) {
+      if (arr[end] !== '') break;
+    }
+
+    if (start > end) return [];
+    return arr.slice(start, end - start + 1);
+  }
+
+  var fromParts = trim(from.split('/'));
+  var toParts = trim(to.split('/'));
+
+  var length = Math.min(fromParts.length, toParts.length);
+  var samePartsLength = length;
+  for (var i = 0; i < length; i++) {
+    if (fromParts[i] !== toParts[i]) {
+      samePartsLength = i;
+      break;
+    }
+  }
+
+  var outputParts = [];
+  for (var i = samePartsLength; i < fromParts.length; i++) {
+    outputParts.push('..');
+  }
+
+  outputParts = outputParts.concat(toParts.slice(samePartsLength));
+
+  return outputParts.join('/');
+};
+
+exports.sep = '/';
+exports.delimiter = ':';
+
+exports.dirname = function(path) {
+  var result = splitPath(path),
+      root = result[0],
+      dir = result[1];
+
+  if (!root && !dir) {
+    // No dirname whatsoever
+    return '.';
+  }
+
+  if (dir) {
+    // It has a dirname, strip trailing slash
+    dir = dir.substr(0, dir.length - 1);
+  }
+
+  return root + dir;
+};
+
+
+exports.basename = function(path, ext) {
+  var f = splitPath(path)[2];
+  // TODO: make this comparison case-insensitive on windows?
+  if (ext && f.substr(-1 * ext.length) === ext) {
+    f = f.substr(0, f.length - ext.length);
+  }
+  return f;
+};
+
+
+exports.extname = function(path) {
+  return splitPath(path)[3];
+};
+
+function filter (xs, f) {
+    if (xs.filter) return xs.filter(f);
+    var res = [];
+    for (var i = 0; i < xs.length; i++) {
+        if (f(xs[i], i, xs)) res.push(xs[i]);
+    }
+    return res;
+}
+
+// String.prototype.substr - negative index don't work in IE8
+var substr = 'ab'.substr(-1) === 'b'
+    ? function (str, start, len) { return str.substr(start, len) }
+    : function (str, start, len) {
+        if (start < 0) start = str.length + start;
+        return str.substr(start, len);
+    }
+;
+
+}).call(this,require('_process'))
+},{"_process":201}],201:[function(require,module,exports){
+// shim for using process in browser
+var process = module.exports = {};
+
+// cached from whatever global is present so that test runners that stub it
+// don't break things.  But we need to wrap it in a try catch in case it is
+// wrapped in strict mode code which doesn't define any globals.  It's inside a
+// function because try/catches deoptimize in certain engines.
+
+var cachedSetTimeout;
+var cachedClearTimeout;
+
+function defaultSetTimout() {
+    throw new Error('setTimeout has not been defined');
+}
+function defaultClearTimeout () {
+    throw new Error('clearTimeout has not been defined');
+}
+(function () {
+    try {
+        if (typeof setTimeout === 'function') {
+            cachedSetTimeout = setTimeout;
+        } else {
+            cachedSetTimeout = defaultSetTimout;
+        }
+    } catch (e) {
+        cachedSetTimeout = defaultSetTimout;
+    }
+    try {
+        if (typeof clearTimeout === 'function') {
+            cachedClearTimeout = clearTimeout;
+        } else {
+            cachedClearTimeout = defaultClearTimeout;
+        }
+    } catch (e) {
+        cachedClearTimeout = defaultClearTimeout;
+    }
+} ())
+function runTimeout(fun) {
+    if (cachedSetTimeout === setTimeout) {
+        //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    // if setTimeout wasn't available but was latter defined
+    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
+        cachedSetTimeout = setTimeout;
+        return setTimeout(fun, 0);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedSetTimeout(fun, 0);
+    } catch(e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+        } catch(e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+        }
+    }
+
+
+}
+function runClearTimeout(marker) {
+    if (cachedClearTimeout === clearTimeout) {
+        //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    // if clearTimeout wasn't available but was latter defined
+    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
+        cachedClearTimeout = clearTimeout;
+        return clearTimeout(marker);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedClearTimeout(marker);
+    } catch (e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+        } catch (e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+        }
+    }
+
+
+
+}
+var queue = [];
+var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    if (!draining || !currentQueue) {
+        return;
+    }
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    var timeout = runTimeout(cleanUpNextTick);
+    draining = true;
+
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
+        }
+        queueIndex = -1;
+        len = queue.length;
+    }
+    currentQueue = null;
+    draining = false;
+    runClearTimeout(timeout);
+}
+
+process.nextTick = function (fun) {
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        runTimeout(drainQueue);
+    }
+};
+
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+process.prependListener = noop;
+process.prependOnceListener = noop;
+
+process.listeners = function (name) { return [] }
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+};
+
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+process.umask = function() { return 0; };
+
+},{}],202:[function(require,module,exports){
+(function (global){
+/*! https://mths.be/punycode v1.4.1 by @mathias */
+;(function(root) {
+
+	/** Detect free variables */
+	var freeExports = typeof exports == 'object' && exports &&
+		!exports.nodeType && exports;
+	var freeModule = typeof module == 'object' && module &&
+		!module.nodeType && module;
+	var freeGlobal = typeof global == 'object' && global;
+	if (
+		freeGlobal.global === freeGlobal ||
+		freeGlobal.window === freeGlobal ||
+		freeGlobal.self === freeGlobal
+	) {
+		root = freeGlobal;
+	}
+
+	/**
+	 * The `punycode` object.
+	 * @name punycode
+	 * @type Object
+	 */
+	var punycode,
+
+	/** Highest positive signed 32-bit float value */
+	maxInt = 2147483647, // aka. 0x7FFFFFFF or 2^31-1
+
+	/** Bootstring parameters */
+	base = 36,
+	tMin = 1,
+	tMax = 26,
+	skew = 38,
+	damp = 700,
+	initialBias = 72,
+	initialN = 128, // 0x80
+	delimiter = '-', // '\x2D'
+
+	/** Regular expressions */
+	regexPunycode = /^xn--/,
+	regexNonASCII = /[^\x20-\x7E]/, // unprintable ASCII chars + non-ASCII chars
+	regexSeparators = /[\x2E\u3002\uFF0E\uFF61]/g, // RFC 3490 separators
+
+	/** Error messages */
+	errors = {
+		'overflow': 'Overflow: input needs wider integers to process',
+		'not-basic': 'Illegal input >= 0x80 (not a basic code point)',
+		'invalid-input': 'Invalid input'
+	},
+
+	/** Convenience shortcuts */
+	baseMinusTMin = base - tMin,
+	floor = Math.floor,
+	stringFromCharCode = String.fromCharCode,
+
+	/** Temporary variable */
+	key;
+
+	/*--------------------------------------------------------------------------*/
+
+	/**
+	 * A generic error utility function.
+	 * @private
+	 * @param {String} type The error type.
+	 * @returns {Error} Throws a `RangeError` with the applicable error message.
+	 */
+	function error(type) {
+		throw new RangeError(errors[type]);
+	}
+
+	/**
+	 * A generic `Array#map` utility function.
+	 * @private
+	 * @param {Array} array The array to iterate over.
+	 * @param {Function} callback The function that gets called for every array
+	 * item.
+	 * @returns {Array} A new array of values returned by the callback function.
+	 */
+	function map(array, fn) {
+		var length = array.length;
+		var result = [];
+		while (length--) {
+			result[length] = fn(array[length]);
+		}
+		return result;
+	}
+
+	/**
+	 * A simple `Array#map`-like wrapper to work with domain name strings or email
+	 * addresses.
+	 * @private
+	 * @param {String} domain The domain name or email address.
+	 * @param {Function} callback The function that gets called for every
+	 * character.
+	 * @returns {Array} A new string of characters returned by the callback
+	 * function.
+	 */
+	function mapDomain(string, fn) {
+		var parts = string.split('@');
+		var result = '';
+		if (parts.length > 1) {
+			// In email addresses, only the domain name should be punycoded. Leave
+			// the local part (i.e. everything up to `@`) intact.
+			result = parts[0] + '@';
+			string = parts[1];
+		}
+		// Avoid `split(regex)` for IE8 compatibility. See #17.
+		string = string.replace(regexSeparators, '\x2E');
+		var labels = string.split('.');
+		var encoded = map(labels, fn).join('.');
+		return result + encoded;
+	}
+
+	/**
+	 * Creates an array containing the numeric code points of each Unicode
+	 * character in the string. While JavaScript uses UCS-2 internally,
+	 * this function will convert a pair of surrogate halves (each of which
+	 * UCS-2 exposes as separate characters) into a single code point,
+	 * matching UTF-16.
+	 * @see `punycode.ucs2.encode`
+	 * @see <https://mathiasbynens.be/notes/javascript-encoding>
+	 * @memberOf punycode.ucs2
+	 * @name decode
+	 * @param {String} string The Unicode input string (UCS-2).
+	 * @returns {Array} The new array of code points.
+	 */
+	function ucs2decode(string) {
+		var output = [],
+		    counter = 0,
+		    length = string.length,
+		    value,
+		    extra;
+		while (counter < length) {
+			value = string.charCodeAt(counter++);
+			if (value >= 0xD800 && value <= 0xDBFF && counter < length) {
+				// high surrogate, and there is a next character
+				extra = string.charCodeAt(counter++);
+				if ((extra & 0xFC00) == 0xDC00) { // low surrogate
+					output.push(((value & 0x3FF) << 10) + (extra & 0x3FF) + 0x10000);
+				} else {
+					// unmatched surrogate; only append this code unit, in case the next
+					// code unit is the high surrogate of a surrogate pair
+					output.push(value);
+					counter--;
+				}
+			} else {
+				output.push(value);
+			}
+		}
+		return output;
+	}
+
+	/**
+	 * Creates a string based on an array of numeric code points.
+	 * @see `punycode.ucs2.decode`
+	 * @memberOf punycode.ucs2
+	 * @name encode
+	 * @param {Array} codePoints The array of numeric code points.
+	 * @returns {String} The new Unicode string (UCS-2).
+	 */
+	function ucs2encode(array) {
+		return map(array, function(value) {
+			var output = '';
+			if (value > 0xFFFF) {
+				value -= 0x10000;
+				output += stringFromCharCode(value >>> 10 & 0x3FF | 0xD800);
+				value = 0xDC00 | value & 0x3FF;
+			}
+			output += stringFromCharCode(value);
+			return output;
+		}).join('');
+	}
+
+	/**
+	 * Converts a basic code point into a digit/integer.
+	 * @see `digitToBasic()`
+	 * @private
+	 * @param {Number} codePoint The basic numeric code point value.
+	 * @returns {Number} The numeric value of a basic code point (for use in
+	 * representing integers) in the range `0` to `base - 1`, or `base` if
+	 * the code point does not represent a value.
+	 */
+	function basicToDigit(codePoint) {
+		if (codePoint - 48 < 10) {
+			return codePoint - 22;
+		}
+		if (codePoint - 65 < 26) {
+			return codePoint - 65;
+		}
+		if (codePoint - 97 < 26) {
+			return codePoint - 97;
+		}
+		return base;
+	}
+
+	/**
+	 * Converts a digit/integer into a basic code point.
+	 * @see `basicToDigit()`
+	 * @private
+	 * @param {Number} digit The numeric value of a basic code point.
+	 * @returns {Number} The basic code point whose value (when used for
+	 * representing integers) is `digit`, which needs to be in the range
+	 * `0` to `base - 1`. If `flag` is non-zero, the uppercase form is
+	 * used; else, the lowercase form is used. The behavior is undefined
+	 * if `flag` is non-zero and `digit` has no uppercase form.
+	 */
+	function digitToBasic(digit, flag) {
+		//  0..25 map to ASCII a..z or A..Z
+		// 26..35 map to ASCII 0..9
+		return digit + 22 + 75 * (digit < 26) - ((flag != 0) << 5);
+	}
+
+	/**
+	 * Bias adaptation function as per section 3.4 of RFC 3492.
+	 * https://tools.ietf.org/html/rfc3492#section-3.4
+	 * @private
+	 */
+	function adapt(delta, numPoints, firstTime) {
+		var k = 0;
+		delta = firstTime ? floor(delta / damp) : delta >> 1;
+		delta += floor(delta / numPoints);
+		for (/* no initialization */; delta > baseMinusTMin * tMax >> 1; k += base) {
+			delta = floor(delta / baseMinusTMin);
+		}
+		return floor(k + (baseMinusTMin + 1) * delta / (delta + skew));
+	}
+
+	/**
+	 * Converts a Punycode string of ASCII-only symbols to a string of Unicode
+	 * symbols.
+	 * @memberOf punycode
+	 * @param {String} input The Punycode string of ASCII-only symbols.
+	 * @returns {String} The resulting string of Unicode symbols.
+	 */
+	function decode(input) {
+		// Don't use UCS-2
+		var output = [],
+		    inputLength = input.length,
+		    out,
+		    i = 0,
+		    n = initialN,
+		    bias = initialBias,
+		    basic,
+		    j,
+		    index,
+		    oldi,
+		    w,
+		    k,
+		    digit,
+		    t,
+		    /** Cached calculation results */
+		    baseMinusT;
+
+		// Handle the basic code points: let `basic` be the number of input code
+		// points before the last delimiter, or `0` if there is none, then copy
+		// the first basic code points to the output.
+
+		basic = input.lastIndexOf(delimiter);
+		if (basic < 0) {
+			basic = 0;
+		}
+
+		for (j = 0; j < basic; ++j) {
+			// if it's not a basic code point
+			if (input.charCodeAt(j) >= 0x80) {
+				error('not-basic');
+			}
+			output.push(input.charCodeAt(j));
+		}
+
+		// Main decoding loop: start just after the last delimiter if any basic code
+		// points were copied; start at the beginning otherwise.
+
+		for (index = basic > 0 ? basic + 1 : 0; index < inputLength; /* no final expression */) {
+
+			// `index` is the index of the next character to be consumed.
+			// Decode a generalized variable-length integer into `delta`,
+			// which gets added to `i`. The overflow checking is easier
+			// if we increase `i` as we go, then subtract off its starting
+			// value at the end to obtain `delta`.
+			for (oldi = i, w = 1, k = base; /* no condition */; k += base) {
+
+				if (index >= inputLength) {
+					error('invalid-input');
+				}
+
+				digit = basicToDigit(input.charCodeAt(index++));
+
+				if (digit >= base || digit > floor((maxInt - i) / w)) {
+					error('overflow');
+				}
+
+				i += digit * w;
+				t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
+
+				if (digit < t) {
+					break;
+				}
+
+				baseMinusT = base - t;
+				if (w > floor(maxInt / baseMinusT)) {
+					error('overflow');
+				}
+
+				w *= baseMinusT;
+
+			}
+
+			out = output.length + 1;
+			bias = adapt(i - oldi, out, oldi == 0);
+
+			// `i` was supposed to wrap around from `out` to `0`,
+			// incrementing `n` each time, so we'll fix that now:
+			if (floor(i / out) > maxInt - n) {
+				error('overflow');
+			}
+
+			n += floor(i / out);
+			i %= out;
+
+			// Insert `n` at position `i` of the output
+			output.splice(i++, 0, n);
+
+		}
+
+		return ucs2encode(output);
+	}
+
+	/**
+	 * Converts a string of Unicode symbols (e.g. a domain name label) to a
+	 * Punycode string of ASCII-only symbols.
+	 * @memberOf punycode
+	 * @param {String} input The string of Unicode symbols.
+	 * @returns {String} The resulting Punycode string of ASCII-only symbols.
+	 */
+	function encode(input) {
+		var n,
+		    delta,
+		    handledCPCount,
+		    basicLength,
+		    bias,
+		    j,
+		    m,
+		    q,
+		    k,
+		    t,
+		    currentValue,
+		    output = [],
+		    /** `inputLength` will hold the number of code points in `input`. */
+		    inputLength,
+		    /** Cached calculation results */
+		    handledCPCountPlusOne,
+		    baseMinusT,
+		    qMinusT;
+
+		// Convert the input in UCS-2 to Unicode
+		input = ucs2decode(input);
+
+		// Cache the length
+		inputLength = input.length;
+
+		// Initialize the state
+		n = initialN;
+		delta = 0;
+		bias = initialBias;
+
+		// Handle the basic code points
+		for (j = 0; j < inputLength; ++j) {
+			currentValue = input[j];
+			if (currentValue < 0x80) {
+				output.push(stringFromCharCode(currentValue));
+			}
+		}
+
+		handledCPCount = basicLength = output.length;
+
+		// `handledCPCount` is the number of code points that have been handled;
+		// `basicLength` is the number of basic code points.
+
+		// Finish the basic string - if it is not empty - with a delimiter
+		if (basicLength) {
+			output.push(delimiter);
+		}
+
+		// Main encoding loop:
+		while (handledCPCount < inputLength) {
+
+			// All non-basic code points < n have been handled already. Find the next
+			// larger one:
+			for (m = maxInt, j = 0; j < inputLength; ++j) {
+				currentValue = input[j];
+				if (currentValue >= n && currentValue < m) {
+					m = currentValue;
+				}
+			}
+
+			// Increase `delta` enough to advance the decoder's <n,i> state to <m,0>,
+			// but guard against overflow
+			handledCPCountPlusOne = handledCPCount + 1;
+			if (m - n > floor((maxInt - delta) / handledCPCountPlusOne)) {
+				error('overflow');
+			}
+
+			delta += (m - n) * handledCPCountPlusOne;
+			n = m;
+
+			for (j = 0; j < inputLength; ++j) {
+				currentValue = input[j];
+
+				if (currentValue < n && ++delta > maxInt) {
+					error('overflow');
+				}
+
+				if (currentValue == n) {
+					// Represent delta as a generalized variable-length integer
+					for (q = delta, k = base; /* no condition */; k += base) {
+						t = k <= bias ? tMin : (k >= bias + tMax ? tMax : k - bias);
+						if (q < t) {
+							break;
+						}
+						qMinusT = q - t;
+						baseMinusT = base - t;
+						output.push(
+							stringFromCharCode(digitToBasic(t + qMinusT % baseMinusT, 0))
+						);
+						q = floor(qMinusT / baseMinusT);
+					}
+
+					output.push(stringFromCharCode(digitToBasic(q, 0)));
+					bias = adapt(delta, handledCPCountPlusOne, handledCPCount == basicLength);
+					delta = 0;
+					++handledCPCount;
+				}
+			}
+
+			++delta;
+			++n;
+
+		}
+		return output.join('');
+	}
+
+	/**
+	 * Converts a Punycode string representing a domain name or an email address
+	 * to Unicode. Only the Punycoded parts of the input will be converted, i.e.
+	 * it doesn't matter if you call it on a string that has already been
+	 * converted to Unicode.
+	 * @memberOf punycode
+	 * @param {String} input The Punycoded domain name or email address to
+	 * convert to Unicode.
+	 * @returns {String} The Unicode representation of the given Punycode
+	 * string.
+	 */
+	function toUnicode(input) {
+		return mapDomain(input, function(string) {
+			return regexPunycode.test(string)
+				? decode(string.slice(4).toLowerCase())
+				: string;
+		});
+	}
+
+	/**
+	 * Converts a Unicode string representing a domain name or an email address to
+	 * Punycode. Only the non-ASCII parts of the domain name will be converted,
+	 * i.e. it doesn't matter if you call it with a domain that's already in
+	 * ASCII.
+	 * @memberOf punycode
+	 * @param {String} input The domain name or email address to convert, as a
+	 * Unicode string.
+	 * @returns {String} The Punycode representation of the given domain name or
+	 * email address.
+	 */
+	function toASCII(input) {
+		return mapDomain(input, function(string) {
+			return regexNonASCII.test(string)
+				? 'xn--' + encode(string)
+				: string;
+		});
+	}
+
+	/*--------------------------------------------------------------------------*/
+
+	/** Define the public API */
+	punycode = {
+		/**
+		 * A string representing the current Punycode.js version number.
+		 * @memberOf punycode
+		 * @type String
+		 */
+		'version': '1.4.1',
+		/**
+		 * An object of methods to convert from JavaScript's internal character
+		 * representation (UCS-2) to Unicode code points, and back.
+		 * @see <https://mathiasbynens.be/notes/javascript-encoding>
+		 * @memberOf punycode
+		 * @type Object
+		 */
+		'ucs2': {
+			'decode': ucs2decode,
+			'encode': ucs2encode
+		},
+		'decode': decode,
+		'encode': encode,
+		'toASCII': toASCII,
+		'toUnicode': toUnicode
+	};
+
+	/** Expose `punycode` */
+	// Some AMD build optimizers, like r.js, check for specific condition patterns
+	// like the following:
+	if (
+		typeof define == 'function' &&
+		typeof define.amd == 'object' &&
+		define.amd
+	) {
+		define('punycode', function() {
+			return punycode;
+		});
+	} else if (freeExports && freeModule) {
+		if (module.exports == freeExports) {
+			// in Node.js, io.js, or RingoJS v0.8.0+
+			freeModule.exports = punycode;
+		} else {
+			// in Narwhal or RingoJS v0.7.0-
+			for (key in punycode) {
+				punycode.hasOwnProperty(key) && (freeExports[key] = punycode[key]);
+			}
+		}
+	} else {
+		// in Rhino or a web browser
+		root.punycode = punycode;
+	}
+
+}(this));
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],203:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+'use strict';
+
+// If obj.hasOwnProperty has been overridden, then calling
+// obj.hasOwnProperty(prop) will break.
+// See: https://github.com/joyent/node/issues/1707
+function hasOwnProperty(obj, prop) {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+module.exports = function(qs, sep, eq, options) {
+  sep = sep || '&';
+  eq = eq || '=';
+  var obj = {};
+
+  if (typeof qs !== 'string' || qs.length === 0) {
+    return obj;
+  }
+
+  var regexp = /\+/g;
+  qs = qs.split(sep);
+
+  var maxKeys = 1000;
+  if (options && typeof options.maxKeys === 'number') {
+    maxKeys = options.maxKeys;
+  }
+
+  var len = qs.length;
+  // maxKeys <= 0 means that we should not limit keys count
+  if (maxKeys > 0 && len > maxKeys) {
+    len = maxKeys;
+  }
+
+  for (var i = 0; i < len; ++i) {
+    var x = qs[i].replace(regexp, '%20'),
+        idx = x.indexOf(eq),
+        kstr, vstr, k, v;
+
+    if (idx >= 0) {
+      kstr = x.substr(0, idx);
+      vstr = x.substr(idx + 1);
+    } else {
+      kstr = x;
+      vstr = '';
+    }
+
+    k = decodeURIComponent(kstr);
+    v = decodeURIComponent(vstr);
+
+    if (!hasOwnProperty(obj, k)) {
+      obj[k] = v;
+    } else if (isArray(obj[k])) {
+      obj[k].push(v);
+    } else {
+      obj[k] = [obj[k], v];
+    }
+  }
+
+  return obj;
+};
+
+var isArray = Array.isArray || function (xs) {
+  return Object.prototype.toString.call(xs) === '[object Array]';
+};
+
+},{}],204:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+'use strict';
+
+var stringifyPrimitive = function(v) {
+  switch (typeof v) {
+    case 'string':
+      return v;
+
+    case 'boolean':
+      return v ? 'true' : 'false';
+
+    case 'number':
+      return isFinite(v) ? v : '';
+
+    default:
+      return '';
+  }
+};
+
+module.exports = function(obj, sep, eq, name) {
+  sep = sep || '&';
+  eq = eq || '=';
+  if (obj === null) {
+    obj = undefined;
+  }
+
+  if (typeof obj === 'object') {
+    return map(objectKeys(obj), function(k) {
+      var ks = encodeURIComponent(stringifyPrimitive(k)) + eq;
+      if (isArray(obj[k])) {
+        return map(obj[k], function(v) {
+          return ks + encodeURIComponent(stringifyPrimitive(v));
+        }).join(sep);
+      } else {
+        return ks + encodeURIComponent(stringifyPrimitive(obj[k]));
+      }
+    }).join(sep);
+
+  }
+
+  if (!name) return '';
+  return encodeURIComponent(stringifyPrimitive(name)) + eq +
+         encodeURIComponent(stringifyPrimitive(obj));
+};
+
+var isArray = Array.isArray || function (xs) {
+  return Object.prototype.toString.call(xs) === '[object Array]';
+};
+
+function map (xs, f) {
+  if (xs.map) return xs.map(f);
+  var res = [];
+  for (var i = 0; i < xs.length; i++) {
+    res.push(f(xs[i], i));
+  }
+  return res;
+}
+
+var objectKeys = Object.keys || function (obj) {
+  var res = [];
+  for (var key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) res.push(key);
+  }
+  return res;
+};
+
+},{}],205:[function(require,module,exports){
+'use strict';
+
+exports.decode = exports.parse = require('./decode');
+exports.encode = exports.stringify = require('./encode');
+
+},{"./decode":203,"./encode":204}],206:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+'use strict';
+
+var punycode = require('punycode');
+var util = require('./util');
+
+exports.parse = urlParse;
+exports.resolve = urlResolve;
+exports.resolveObject = urlResolveObject;
+exports.format = urlFormat;
+
+exports.Url = Url;
+
+function Url() {
+  this.protocol = null;
+  this.slashes = null;
+  this.auth = null;
+  this.host = null;
+  this.port = null;
+  this.hostname = null;
+  this.hash = null;
+  this.search = null;
+  this.query = null;
+  this.pathname = null;
+  this.path = null;
+  this.href = null;
+}
+
+// Reference: RFC 3986, RFC 1808, RFC 2396
+
+// define these here so at least they only have to be
+// compiled once on the first module load.
+var protocolPattern = /^([a-z0-9.+-]+:)/i,
+    portPattern = /:[0-9]*$/,
+
+    // Special case for a simple path URL
+    simplePathPattern = /^(\/\/?(?!\/)[^\?\s]*)(\?[^\s]*)?$/,
+
+    // RFC 2396: characters reserved for delimiting URLs.
+    // We actually just auto-escape these.
+    delims = ['<', '>', '"', '`', ' ', '\r', '\n', '\t'],
+
+    // RFC 2396: characters not allowed for various reasons.
+    unwise = ['{', '}', '|', '\\', '^', '`'].concat(delims),
+
+    // Allowed by RFCs, but cause of XSS attacks.  Always escape these.
+    autoEscape = ['\''].concat(unwise),
+    // Characters that are never ever allowed in a hostname.
+    // Note that any invalid chars are also handled, but these
+    // are the ones that are *expected* to be seen, so we fast-path
+    // them.
+    nonHostChars = ['%', '/', '?', ';', '#'].concat(autoEscape),
+    hostEndingChars = ['/', '?', '#'],
+    hostnameMaxLen = 255,
+    hostnamePartPattern = /^[+a-z0-9A-Z_-]{0,63}$/,
+    hostnamePartStart = /^([+a-z0-9A-Z_-]{0,63})(.*)$/,
+    // protocols that can allow "unsafe" and "unwise" chars.
+    unsafeProtocol = {
+      'javascript': true,
+      'javascript:': true
+    },
+    // protocols that never have a hostname.
+    hostlessProtocol = {
+      'javascript': true,
+      'javascript:': true
+    },
+    // protocols that always contain a // bit.
+    slashedProtocol = {
+      'http': true,
+      'https': true,
+      'ftp': true,
+      'gopher': true,
+      'file': true,
+      'http:': true,
+      'https:': true,
+      'ftp:': true,
+      'gopher:': true,
+      'file:': true
+    },
+    querystring = require('querystring');
+
+function urlParse(url, parseQueryString, slashesDenoteHost) {
+  if (url && util.isObject(url) && url instanceof Url) return url;
+
+  var u = new Url;
+  u.parse(url, parseQueryString, slashesDenoteHost);
+  return u;
+}
+
+Url.prototype.parse = function(url, parseQueryString, slashesDenoteHost) {
+  if (!util.isString(url)) {
+    throw new TypeError("Parameter 'url' must be a string, not " + typeof url);
+  }
+
+  // Copy chrome, IE, opera backslash-handling behavior.
+  // Back slashes before the query string get converted to forward slashes
+  // See: https://code.google.com/p/chromium/issues/detail?id=25916
+  var queryIndex = url.indexOf('?'),
+      splitter =
+          (queryIndex !== -1 && queryIndex < url.indexOf('#')) ? '?' : '#',
+      uSplit = url.split(splitter),
+      slashRegex = /\\/g;
+  uSplit[0] = uSplit[0].replace(slashRegex, '/');
+  url = uSplit.join(splitter);
+
+  var rest = url;
+
+  // trim before proceeding.
+  // This is to support parse stuff like "  http://foo.com  \n"
+  rest = rest.trim();
+
+  if (!slashesDenoteHost && url.split('#').length === 1) {
+    // Try fast path regexp
+    var simplePath = simplePathPattern.exec(rest);
+    if (simplePath) {
+      this.path = rest;
+      this.href = rest;
+      this.pathname = simplePath[1];
+      if (simplePath[2]) {
+        this.search = simplePath[2];
+        if (parseQueryString) {
+          this.query = querystring.parse(this.search.substr(1));
+        } else {
+          this.query = this.search.substr(1);
+        }
+      } else if (parseQueryString) {
+        this.search = '';
+        this.query = {};
+      }
+      return this;
+    }
+  }
+
+  var proto = protocolPattern.exec(rest);
+  if (proto) {
+    proto = proto[0];
+    var lowerProto = proto.toLowerCase();
+    this.protocol = lowerProto;
+    rest = rest.substr(proto.length);
+  }
+
+  // figure out if it's got a host
+  // user@server is *always* interpreted as a hostname, and url
+  // resolution will treat //foo/bar as host=foo,path=bar because that's
+  // how the browser resolves relative URLs.
+  if (slashesDenoteHost || proto || rest.match(/^\/\/[^@\/]+@[^@\/]+/)) {
+    var slashes = rest.substr(0, 2) === '//';
+    if (slashes && !(proto && hostlessProtocol[proto])) {
+      rest = rest.substr(2);
+      this.slashes = true;
+    }
+  }
+
+  if (!hostlessProtocol[proto] &&
+      (slashes || (proto && !slashedProtocol[proto]))) {
+
+    // there's a hostname.
+    // the first instance of /, ?, ;, or # ends the host.
+    //
+    // If there is an @ in the hostname, then non-host chars *are* allowed
+    // to the left of the last @ sign, unless some host-ending character
+    // comes *before* the @-sign.
+    // URLs are obnoxious.
+    //
+    // ex:
+    // http://a@b@c/ => user:a@b host:c
+    // http://a@b?@c => user:a host:c path:/?@c
+
+    // v0.12 TODO(isaacs): This is not quite how Chrome does things.
+    // Review our test case against browsers more comprehensively.
+
+    // find the first instance of any hostEndingChars
+    var hostEnd = -1;
+    for (var i = 0; i < hostEndingChars.length; i++) {
+      var hec = rest.indexOf(hostEndingChars[i]);
+      if (hec !== -1 && (hostEnd === -1 || hec < hostEnd))
+        hostEnd = hec;
+    }
+
+    // at this point, either we have an explicit point where the
+    // auth portion cannot go past, or the last @ char is the decider.
+    var auth, atSign;
+    if (hostEnd === -1) {
+      // atSign can be anywhere.
+      atSign = rest.lastIndexOf('@');
+    } else {
+      // atSign must be in auth portion.
+      // http://a@b/c@d => host:b auth:a path:/c@d
+      atSign = rest.lastIndexOf('@', hostEnd);
+    }
+
+    // Now we have a portion which is definitely the auth.
+    // Pull that off.
+    if (atSign !== -1) {
+      auth = rest.slice(0, atSign);
+      rest = rest.slice(atSign + 1);
+      this.auth = decodeURIComponent(auth);
+    }
+
+    // the host is the remaining to the left of the first non-host char
+    hostEnd = -1;
+    for (var i = 0; i < nonHostChars.length; i++) {
+      var hec = rest.indexOf(nonHostChars[i]);
+      if (hec !== -1 && (hostEnd === -1 || hec < hostEnd))
+        hostEnd = hec;
+    }
+    // if we still have not hit it, then the entire thing is a host.
+    if (hostEnd === -1)
+      hostEnd = rest.length;
+
+    this.host = rest.slice(0, hostEnd);
+    rest = rest.slice(hostEnd);
+
+    // pull out port.
+    this.parseHost();
+
+    // we've indicated that there is a hostname,
+    // so even if it's empty, it has to be present.
+    this.hostname = this.hostname || '';
+
+    // if hostname begins with [ and ends with ]
+    // assume that it's an IPv6 address.
+    var ipv6Hostname = this.hostname[0] === '[' &&
+        this.hostname[this.hostname.length - 1] === ']';
+
+    // validate a little.
+    if (!ipv6Hostname) {
+      var hostparts = this.hostname.split(/\./);
+      for (var i = 0, l = hostparts.length; i < l; i++) {
+        var part = hostparts[i];
+        if (!part) continue;
+        if (!part.match(hostnamePartPattern)) {
+          var newpart = '';
+          for (var j = 0, k = part.length; j < k; j++) {
+            if (part.charCodeAt(j) > 127) {
+              // we replace non-ASCII char with a temporary placeholder
+              // we need this to make sure size of hostname is not
+              // broken by replacing non-ASCII by nothing
+              newpart += 'x';
+            } else {
+              newpart += part[j];
+            }
+          }
+          // we test again with ASCII char only
+          if (!newpart.match(hostnamePartPattern)) {
+            var validParts = hostparts.slice(0, i);
+            var notHost = hostparts.slice(i + 1);
+            var bit = part.match(hostnamePartStart);
+            if (bit) {
+              validParts.push(bit[1]);
+              notHost.unshift(bit[2]);
+            }
+            if (notHost.length) {
+              rest = '/' + notHost.join('.') + rest;
+            }
+            this.hostname = validParts.join('.');
+            break;
+          }
+        }
+      }
+    }
+
+    if (this.hostname.length > hostnameMaxLen) {
+      this.hostname = '';
+    } else {
+      // hostnames are always lower case.
+      this.hostname = this.hostname.toLowerCase();
+    }
+
+    if (!ipv6Hostname) {
+      // IDNA Support: Returns a punycoded representation of "domain".
+      // It only converts parts of the domain name that
+      // have non-ASCII characters, i.e. it doesn't matter if
+      // you call it with a domain that already is ASCII-only.
+      this.hostname = punycode.toASCII(this.hostname);
+    }
+
+    var p = this.port ? ':' + this.port : '';
+    var h = this.hostname || '';
+    this.host = h + p;
+    this.href += this.host;
+
+    // strip [ and ] from the hostname
+    // the host field still retains them, though
+    if (ipv6Hostname) {
+      this.hostname = this.hostname.substr(1, this.hostname.length - 2);
+      if (rest[0] !== '/') {
+        rest = '/' + rest;
+      }
+    }
+  }
+
+  // now rest is set to the post-host stuff.
+  // chop off any delim chars.
+  if (!unsafeProtocol[lowerProto]) {
+
+    // First, make 100% sure that any "autoEscape" chars get
+    // escaped, even if encodeURIComponent doesn't think they
+    // need to be.
+    for (var i = 0, l = autoEscape.length; i < l; i++) {
+      var ae = autoEscape[i];
+      if (rest.indexOf(ae) === -1)
+        continue;
+      var esc = encodeURIComponent(ae);
+      if (esc === ae) {
+        esc = escape(ae);
+      }
+      rest = rest.split(ae).join(esc);
+    }
+  }
+
+
+  // chop off from the tail first.
+  var hash = rest.indexOf('#');
+  if (hash !== -1) {
+    // got a fragment string.
+    this.hash = rest.substr(hash);
+    rest = rest.slice(0, hash);
+  }
+  var qm = rest.indexOf('?');
+  if (qm !== -1) {
+    this.search = rest.substr(qm);
+    this.query = rest.substr(qm + 1);
+    if (parseQueryString) {
+      this.query = querystring.parse(this.query);
+    }
+    rest = rest.slice(0, qm);
+  } else if (parseQueryString) {
+    // no query string, but parseQueryString still requested
+    this.search = '';
+    this.query = {};
+  }
+  if (rest) this.pathname = rest;
+  if (slashedProtocol[lowerProto] &&
+      this.hostname && !this.pathname) {
+    this.pathname = '/';
+  }
+
+  //to support http.request
+  if (this.pathname || this.search) {
+    var p = this.pathname || '';
+    var s = this.search || '';
+    this.path = p + s;
+  }
+
+  // finally, reconstruct the href based on what has been validated.
+  this.href = this.format();
+  return this;
+};
+
+// format a parsed object into a url string
+function urlFormat(obj) {
+  // ensure it's an object, and not a string url.
+  // If it's an obj, this is a no-op.
+  // this way, you can call url_format() on strings
+  // to clean up potentially wonky urls.
+  if (util.isString(obj)) obj = urlParse(obj);
+  if (!(obj instanceof Url)) return Url.prototype.format.call(obj);
+  return obj.format();
+}
+
+Url.prototype.format = function() {
+  var auth = this.auth || '';
+  if (auth) {
+    auth = encodeURIComponent(auth);
+    auth = auth.replace(/%3A/i, ':');
+    auth += '@';
+  }
+
+  var protocol = this.protocol || '',
+      pathname = this.pathname || '',
+      hash = this.hash || '',
+      host = false,
+      query = '';
+
+  if (this.host) {
+    host = auth + this.host;
+  } else if (this.hostname) {
+    host = auth + (this.hostname.indexOf(':') === -1 ?
+        this.hostname :
+        '[' + this.hostname + ']');
+    if (this.port) {
+      host += ':' + this.port;
+    }
+  }
+
+  if (this.query &&
+      util.isObject(this.query) &&
+      Object.keys(this.query).length) {
+    query = querystring.stringify(this.query);
+  }
+
+  var search = this.search || (query && ('?' + query)) || '';
+
+  if (protocol && protocol.substr(-1) !== ':') protocol += ':';
+
+  // only the slashedProtocols get the //.  Not mailto:, xmpp:, etc.
+  // unless they had them to begin with.
+  if (this.slashes ||
+      (!protocol || slashedProtocol[protocol]) && host !== false) {
+    host = '//' + (host || '');
+    if (pathname && pathname.charAt(0) !== '/') pathname = '/' + pathname;
+  } else if (!host) {
+    host = '';
+  }
+
+  if (hash && hash.charAt(0) !== '#') hash = '#' + hash;
+  if (search && search.charAt(0) !== '?') search = '?' + search;
+
+  pathname = pathname.replace(/[?#]/g, function(match) {
+    return encodeURIComponent(match);
+  });
+  search = search.replace('#', '%23');
+
+  return protocol + host + pathname + search + hash;
+};
+
+function urlResolve(source, relative) {
+  return urlParse(source, false, true).resolve(relative);
+}
+
+Url.prototype.resolve = function(relative) {
+  return this.resolveObject(urlParse(relative, false, true)).format();
+};
+
+function urlResolveObject(source, relative) {
+  if (!source) return relative;
+  return urlParse(source, false, true).resolveObject(relative);
+}
+
+Url.prototype.resolveObject = function(relative) {
+  if (util.isString(relative)) {
+    var rel = new Url();
+    rel.parse(relative, false, true);
+    relative = rel;
+  }
+
+  var result = new Url();
+  var tkeys = Object.keys(this);
+  for (var tk = 0; tk < tkeys.length; tk++) {
+    var tkey = tkeys[tk];
+    result[tkey] = this[tkey];
+  }
+
+  // hash is always overridden, no matter what.
+  // even href="" will remove it.
+  result.hash = relative.hash;
+
+  // if the relative url is empty, then there's nothing left to do here.
+  if (relative.href === '') {
+    result.href = result.format();
+    return result;
+  }
+
+  // hrefs like //foo/bar always cut to the protocol.
+  if (relative.slashes && !relative.protocol) {
+    // take everything except the protocol from relative
+    var rkeys = Object.keys(relative);
+    for (var rk = 0; rk < rkeys.length; rk++) {
+      var rkey = rkeys[rk];
+      if (rkey !== 'protocol')
+        result[rkey] = relative[rkey];
+    }
+
+    //urlParse appends trailing / to urls like http://www.example.com
+    if (slashedProtocol[result.protocol] &&
+        result.hostname && !result.pathname) {
+      result.path = result.pathname = '/';
+    }
+
+    result.href = result.format();
+    return result;
+  }
+
+  if (relative.protocol && relative.protocol !== result.protocol) {
+    // if it's a known url protocol, then changing
+    // the protocol does weird things
+    // first, if it's not file:, then we MUST have a host,
+    // and if there was a path
+    // to begin with, then we MUST have a path.
+    // if it is file:, then the host is dropped,
+    // because that's known to be hostless.
+    // anything else is assumed to be absolute.
+    if (!slashedProtocol[relative.protocol]) {
+      var keys = Object.keys(relative);
+      for (var v = 0; v < keys.length; v++) {
+        var k = keys[v];
+        result[k] = relative[k];
+      }
+      result.href = result.format();
+      return result;
+    }
+
+    result.protocol = relative.protocol;
+    if (!relative.host && !hostlessProtocol[relative.protocol]) {
+      var relPath = (relative.pathname || '').split('/');
+      while (relPath.length && !(relative.host = relPath.shift()));
+      if (!relative.host) relative.host = '';
+      if (!relative.hostname) relative.hostname = '';
+      if (relPath[0] !== '') relPath.unshift('');
+      if (relPath.length < 2) relPath.unshift('');
+      result.pathname = relPath.join('/');
+    } else {
+      result.pathname = relative.pathname;
+    }
+    result.search = relative.search;
+    result.query = relative.query;
+    result.host = relative.host || '';
+    result.auth = relative.auth;
+    result.hostname = relative.hostname || relative.host;
+    result.port = relative.port;
+    // to support http.request
+    if (result.pathname || result.search) {
+      var p = result.pathname || '';
+      var s = result.search || '';
+      result.path = p + s;
+    }
+    result.slashes = result.slashes || relative.slashes;
+    result.href = result.format();
+    return result;
+  }
+
+  var isSourceAbs = (result.pathname && result.pathname.charAt(0) === '/'),
+      isRelAbs = (
+          relative.host ||
+          relative.pathname && relative.pathname.charAt(0) === '/'
+      ),
+      mustEndAbs = (isRelAbs || isSourceAbs ||
+                    (result.host && relative.pathname)),
+      removeAllDots = mustEndAbs,
+      srcPath = result.pathname && result.pathname.split('/') || [],
+      relPath = relative.pathname && relative.pathname.split('/') || [],
+      psychotic = result.protocol && !slashedProtocol[result.protocol];
+
+  // if the url is a non-slashed url, then relative
+  // links like ../.. should be able
+  // to crawl up to the hostname, as well.  This is strange.
+  // result.protocol has already been set by now.
+  // Later on, put the first path part into the host field.
+  if (psychotic) {
+    result.hostname = '';
+    result.port = null;
+    if (result.host) {
+      if (srcPath[0] === '') srcPath[0] = result.host;
+      else srcPath.unshift(result.host);
+    }
+    result.host = '';
+    if (relative.protocol) {
+      relative.hostname = null;
+      relative.port = null;
+      if (relative.host) {
+        if (relPath[0] === '') relPath[0] = relative.host;
+        else relPath.unshift(relative.host);
+      }
+      relative.host = null;
+    }
+    mustEndAbs = mustEndAbs && (relPath[0] === '' || srcPath[0] === '');
+  }
+
+  if (isRelAbs) {
+    // it's absolute.
+    result.host = (relative.host || relative.host === '') ?
+                  relative.host : result.host;
+    result.hostname = (relative.hostname || relative.hostname === '') ?
+                      relative.hostname : result.hostname;
+    result.search = relative.search;
+    result.query = relative.query;
+    srcPath = relPath;
+    // fall through to the dot-handling below.
+  } else if (relPath.length) {
+    // it's relative
+    // throw away the existing file, and take the new path instead.
+    if (!srcPath) srcPath = [];
+    srcPath.pop();
+    srcPath = srcPath.concat(relPath);
+    result.search = relative.search;
+    result.query = relative.query;
+  } else if (!util.isNullOrUndefined(relative.search)) {
+    // just pull out the search.
+    // like href='?foo'.
+    // Put this after the other two cases because it simplifies the booleans
+    if (psychotic) {
+      result.hostname = result.host = srcPath.shift();
+      //occationaly the auth can get stuck only in host
+      //this especially happens in cases like
+      //url.resolveObject('mailto:local1@domain1', 'local2@domain2')
+      var authInHost = result.host && result.host.indexOf('@') > 0 ?
+                       result.host.split('@') : false;
+      if (authInHost) {
+        result.auth = authInHost.shift();
+        result.host = result.hostname = authInHost.shift();
+      }
+    }
+    result.search = relative.search;
+    result.query = relative.query;
+    //to support http.request
+    if (!util.isNull(result.pathname) || !util.isNull(result.search)) {
+      result.path = (result.pathname ? result.pathname : '') +
+                    (result.search ? result.search : '');
+    }
+    result.href = result.format();
+    return result;
+  }
+
+  if (!srcPath.length) {
+    // no path at all.  easy.
+    // we've already handled the other stuff above.
+    result.pathname = null;
+    //to support http.request
+    if (result.search) {
+      result.path = '/' + result.search;
+    } else {
+      result.path = null;
+    }
+    result.href = result.format();
+    return result;
+  }
+
+  // if a url ENDs in . or .., then it must get a trailing slash.
+  // however, if it ends in anything else non-slashy,
+  // then it must NOT get a trailing slash.
+  var last = srcPath.slice(-1)[0];
+  var hasTrailingSlash = (
+      (result.host || relative.host || srcPath.length > 1) &&
+      (last === '.' || last === '..') || last === '');
+
+  // strip single dots, resolve double dots to parent dir
+  // if the path tries to go above the root, `up` ends up > 0
+  var up = 0;
+  for (var i = srcPath.length; i >= 0; i--) {
+    last = srcPath[i];
+    if (last === '.') {
+      srcPath.splice(i, 1);
+    } else if (last === '..') {
+      srcPath.splice(i, 1);
+      up++;
+    } else if (up) {
+      srcPath.splice(i, 1);
+      up--;
+    }
+  }
+
+  // if the path is allowed to go above the root, restore leading ..s
+  if (!mustEndAbs && !removeAllDots) {
+    for (; up--; up) {
+      srcPath.unshift('..');
+    }
+  }
+
+  if (mustEndAbs && srcPath[0] !== '' &&
+      (!srcPath[0] || srcPath[0].charAt(0) !== '/')) {
+    srcPath.unshift('');
+  }
+
+  if (hasTrailingSlash && (srcPath.join('/').substr(-1) !== '/')) {
+    srcPath.push('');
+  }
+
+  var isAbsolute = srcPath[0] === '' ||
+      (srcPath[0] && srcPath[0].charAt(0) === '/');
+
+  // put the host back
+  if (psychotic) {
+    result.hostname = result.host = isAbsolute ? '' :
+                                    srcPath.length ? srcPath.shift() : '';
+    //occationaly the auth can get stuck only in host
+    //this especially happens in cases like
+    //url.resolveObject('mailto:local1@domain1', 'local2@domain2')
+    var authInHost = result.host && result.host.indexOf('@') > 0 ?
+                     result.host.split('@') : false;
+    if (authInHost) {
+      result.auth = authInHost.shift();
+      result.host = result.hostname = authInHost.shift();
+    }
+  }
+
+  mustEndAbs = mustEndAbs || (result.host && srcPath.length);
+
+  if (mustEndAbs && !isAbsolute) {
+    srcPath.unshift('');
+  }
+
+  if (!srcPath.length) {
+    result.pathname = null;
+    result.path = null;
+  } else {
+    result.pathname = srcPath.join('/');
+  }
+
+  //to support request.http
+  if (!util.isNull(result.pathname) || !util.isNull(result.search)) {
+    result.path = (result.pathname ? result.pathname : '') +
+                  (result.search ? result.search : '');
+  }
+  result.auth = relative.auth || result.auth;
+  result.slashes = result.slashes || relative.slashes;
+  result.href = result.format();
+  return result;
+};
+
+Url.prototype.parseHost = function() {
+  var host = this.host;
+  var port = portPattern.exec(host);
+  if (port) {
+    port = port[0];
+    if (port !== ':') {
+      this.port = port.substr(1);
+    }
+    host = host.substr(0, host.length - port.length);
+  }
+  if (host) this.hostname = host;
+};
+
+},{"./util":207,"punycode":202,"querystring":205}],207:[function(require,module,exports){
+'use strict';
+
+module.exports = {
+  isString: function(arg) {
+    return typeof(arg) === 'string';
+  },
+  isObject: function(arg) {
+    return typeof(arg) === 'object' && arg !== null;
+  },
+  isNull: function(arg) {
+    return arg === null;
+  },
+  isNullOrUndefined: function(arg) {
+    return arg == null;
+  }
+};
+
+},{}]},{},[181]);

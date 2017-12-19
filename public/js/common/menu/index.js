@@ -37,13 +37,19 @@ function menu( gameobj ) {
     _this.obj = mainMenu;
 
     //Create and config intro text
+    let playRect = new PIXI.Rectangle(0, 0, _this.width, _this.height);
+    let playTexture = new PIXI.Texture(
+      PIXI.utils.TextureCache['playBtn'],
+      playRect
+    );
+
     let introText = new PIXI.Text( _this.intro, _this.style );
     introText.anchor.set(0.5, 0.5);
 
     _this.obj.addChild(introText);
 
     //Create and config play button
-    let playBttn = new PIXI.Sprite( PIXI.Texture.WHITE );
+    let playBttn = new PIXI.Sprite(playTexture);
     playBttn.width = _this.width;
     playBttn.height = _this.height;
     introText.anchor.set(0.5, 0.5);

@@ -86,7 +86,9 @@ function game (){
 
     // Texture loader
     PIXI.loader
-      .add("spriteSheet", _this.texture)
+      .add("spriteSheet", _this.texture.spriteSheet)
+      .add("base", _this.texture.base)
+      .add("playBtn", _this.texture.play)
       .load(_this.setup)
 
   }
